@@ -1,0 +1,12 @@
+配置信息anthroic {    "name": "deepseekv4_pro",     
+  "env": {   
+ "ANTHROPIC_AUTH_TOKEN": "goodluck", 
+ "ANTHROPIC_BASE_URL": "https://free.274747.xyz/", 
+ "ANTHROPIC_MODEL": "deepseek/deepseek-v4-pro",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-flash", 
+"ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",    
+ "API_TIMEOUT_MS": "30000000"                                                                                                                                                                                                                                                                                                                                          }                                                                                                 
+                    }, 
+
+远程服务器地址：
+https://vercel.com/lijianguo-s-projects/freebuff2api/F7AAViFodx8YWvSdiSTfKirkxyeN

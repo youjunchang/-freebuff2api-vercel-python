@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>freebuff2api Admin</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/naive-ui@2/dist/index.prod.js"></script>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --line: #d9e1ec;
+      --text: #1f2937;
+      --muted: #64748b;
+      --accent: #1677b3;
+      --accent-soft: #e7f2fb;
+      --danger-soft: #fff1f0;
+      --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+      --sans: "Geist", "Satoshi", "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+    [v-cloak] { display: none; }
+
+    .login-shell {
+      min-height: 100dvh;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 420px;
+      background:
+        linear-gradient(120deg, rgba(22, 119, 179, .10), transparent 36%),
+        linear-gradient(180deg, #fbfcfe, #edf2f7);
+    }
+    .login-brief {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 56px 64px;
+      border-right: 1px solid var(--line);
+    }
+    .brand-mark {
+      display: inline-flex;
+      width: 42px;
+      height: 42px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      background: #18324a;
+      color: white;
+      font-family: var(--mono);
+      font-weight: 700;
+    }
+    .login-title {
+      margin: 0;
+      max-width: 720px;
+      font-size: 42px;
+      line-height: 1.08;
+      font-weight: 760;
+    }
+    .login-subtitle {
+      max-width: 560px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+    .login-card {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 36px;
+      background: rgba(255, 255, 255, .72);
+      backdrop-filter: blur(14px);
+    }
+    .login-panel {
+      width: 100%;
+      max-width: 360px;
+    }
+
+    .app-shell {
+      min-height: 100dvh;
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+    }
+    .sidebar {
+      padding: 22px 16px;
+      background: #111827;
+      color: #e5eef7;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+    .sidebar-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 8px 10px;
+    }
+    .sidebar-title { font-weight: 760; font-size: 16px; }
+    .sidebar-sub { color: #9fb0c1; font-size: 12px; }
+    .nav-list { display: grid; gap: 6px; }
+    .nav-btn {
+      width: 100%;
+      border: 0;
+      color: #cbd5e1;
+      background: transparent;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: background .18s ease, color .18s ease, transform .18s ease;
+      font: inherit;
+    }
+    .nav-btn:hover { background: rgba(255,255,255,.07); color: #fff; }
+    .nav-btn:active { transform: translateY(1px); }
+    .nav-btn.active { background: #e7f2fb; color: #0f3554; }
+    .nav-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      border: 1px solid currentColor;
+    }
+    .sidebar-foot {
+      margin-top: auto;
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px;
+      color: #a8b5c4;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 26px 32px 42px;
+    }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+    .page-title { margin: 0; font-size: 26px; line-height: 1.2; font-weight: 760; }
+    .page-subtitle { margin: 8px 0 0; color: var(--muted); }
+    .top-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .metric {
+      padding: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .metric-label { color: var(--muted); font-size: 12px; }
+    .metric-value { margin-top: 8px; font-family: var(--mono); font-size: 24px; font-weight: 700; }
+    .metric-note { margin-top: 8px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .panel-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr);
+      gap: 16px;
+    }
+    .panel-stack { display: grid; gap: 16px; }
+    .card-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .card-title h3 { margin: 0; font-size: 16px; }
+    .muted { color: var(--muted); }
+    .mono { font-family: var(--mono); }
+    .token-list { display: grid; gap: 8px; }
+    .token-row {
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr) 92px 230px;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdff;
+    }
+    .token-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .section-head h3 { margin: 0; font-size: 16px; }
+    .log-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    .log-view {
+      height: 520px;
+      overflow: auto;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      background: #0f172a;
+      padding: 12px;
+      color: #dbeafe;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+    .log-line { display: grid; grid-template-columns: 148px 70px 220px minmax(0, 1fr); gap: 10px; border-bottom: 1px solid rgba(255,255,255,.06); padding: 6px 0; }
+    .log-message { white-space: pre-wrap; word-break: break-word; }
+    .log-detail { grid-column: 1 / -1; margin: 4px 0 2px; padding: 8px 10px; border-left: 2px solid #38bdf8; background: rgba(15, 23, 42, .88); color: #cbd5e1; white-space: pre-wrap; word-break: break-word; }
+    .log-level-WARNING { color: #fbbf24; }
+    .log-level-ERROR, .log-level-CRITICAL { color: #fb7185; }
+    .log-level-DEBUG { color: #67e8f9; }
+    .empty-box {
+      min-height: 180px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: #fbfdff;
+      text-align: center;
+      padding: 24px;
+    }
+    .env-box {
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    @media (max-width: 980px) {
+      .login-shell { grid-template-columns: 1fr; }
+      .login-brief { padding: 34px 24px; min-height: 42dvh; }
+      .login-title { font-size: 32px; }
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar { position: static; }
+      .nav-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .metric-grid, .panel-grid { grid-template-columns: 1fr; }
+      .main { padding: 20px 16px 32px; }
+      .topbar { flex-direction: column; }
+      .log-line { grid-template-columns: 1fr; gap: 0; padding: 8px 0; }
+      .token-row { grid-template-columns: 1fr; }
+      .token-actions { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <n-config-provider>
+        <div v-if="checkingSession" class="login-shell">
+          <section class="login-brief">
+            <div><div class="brand-mark">FB</div></div>
+            <div>
+              <h1 class="login-title">正在检查登录状态</h1>
+              <p class="login-subtitle">如果已有管理会话，会直接进入控制台；否则会显示登录页。</p>
+            </div>
+            <p class="muted mono">/admin</p>
+          </section>
+          <section class="login-card">
+            <div class="login-panel">
+              <n-card title="Session" :bordered="false">
+                <n-skeleton text :repeat="4" />
+              </n-card>
+            </div>
+          </section>
+        </div>
+        <div v-else-if="!authed" class="login-shell">
+          <section class="login-brief">
+            <div>
+              <div class="brand-mark">FB</div>
+            </div>
+            <div>
+              <h1 class="login-title">freebuff2api 管理面板</h1>
+              <p class="login-subtitle">管理 Freebuff Token、查看运行日志、检查账号池状态，并在本地服务中立即应用配置。</p>
+            </div>
+            <p class="muted mono">/admin</p>
+          </section>
+          <section class="login-card">
+            <div class="login-panel">
+              <n-card title="管理员登录" :bordered="false">
+                <n-form @submit.prevent="login">
+                  <n-form-item label="Admin Key">
+                    <n-input v-model:value="loginKey" type="password" show-password-on="click" placeholder="默认 sk-admin" @keydown.enter="login" />
+                  </n-form-item>
+                  <n-button type="primary" block :loading="loading.login" @click="login">登录</n-button>
+                </n-form>
+                <p class="muted" style="margin: 14px 0 0; font-size: 12px; line-height: 1.7;">默认管理员 Key 是 sk-admin，进入后请在设置页改成自己的密钥。</p>
+              </n-card>
+            </div>
+          </section>
+        </div>
+
+        <div v-else class="app-shell">
+          <aside class="sidebar">
+            <div class="sidebar-head">
+              <div class="brand-mark">FB</div>
+              <div>
+                <div class="sidebar-title">freebuff2api</div>
+                <div class="sidebar-sub">Admin Console</div>
+              </div>
+            </div>
+            <nav class="nav-list">
+              <button v-for="item in nav" :key="item.key" class="nav-btn" :class="{active: tab === item.key}" @click="tab = item.key">
+                <span class="nav-dot"></span><span>{{ item.label }}</span>
+              </button>
+            </nav>
+            <div class="sidebar-foot">
+              <div>环境：{{ config.environment || '-' }}</div>
+              <div>上游：{{ overview.base_url || '-' }}</div>
+            </div>
+          </aside>
+
+          <main class="main">
+            <header class="topbar">
+              <div>
+                <h2 class="page-title">{{ activeTitle }}</h2>
+                <p class="page-subtitle">{{ activeSubtitle }}</p>
+              </div>
+              <div class="top-actions">
+                <n-tag :type="overview.status === 'ok' ? 'success' : 'warning'">{{ overview.status || 'unknown' }}</n-tag>
+                <n-button secondary @click="refreshAll" :loading="loading.page">刷新</n-button>
+                <n-button tertiary @click="logout">退出</n-button>
+              </div>
+            </header>
+
+            <section v-if="tab === 'overview'">
+              <n-alert v-if="config.using_default_admin_key || !config.api_key_configured || !config.token_count" type="warning" title="初始化未完成" style="margin-bottom: 16px;">
+                <div v-if="config.using_default_admin_key">当前仍在使用默认 Admin Key：sk-admin，请到设置页修改。</div>
+                <div v-if="!config.api_key_configured">FREEBUFF_API_KEY 未配置，/v1/* API 会暂时返回配置错误。</div>
+                <div v-if="!config.token_count">FREEBUFF_TOKEN 未配置，请到 Token 页添加后热更新生效。</div>
+              </n-alert>
+              <div class="metric-grid">
+                <div class="metric"><div class="metric-label">账号池</div><div class="metric-value">{{ overview.account_count ?? '-' }}</div><div class="metric-note">Freebuff Token 数量</div></div>
+                <div class="metric"><div class="metric-label">模型</div><div class="metric-value">{{ overview.model_count ?? '-' }}</div><div class="metric-note">OpenAI 兼容模型</div></div>
+                <div class="metric"><div class="metric-label">日志等级</div><div class="metric-value">{{ overview.log_level || '-' }}</div><div class="metric-note">Debug: {{ overview.debug ? 'on' : 'off' }}</div></div>
+                <div class="metric"><div class="metric-label">部署环境</div><div class="metric-value">{{ config.environment || '-' }}</div><div class="metric-note">Vercel 写入不持久</div></div>
+              </div>
+              <div class="panel-grid">
+                <n-card title="当前配置" :bordered="true">
+                  <n-descriptions label-placement="left" :column="1" size="small" bordered>
+                    <n-descriptions-item label="API Key">{{ config.api_key_configured ? config.api_key_masked : '未设置' }}</n-descriptions-item>
+                    <n-descriptions-item label="Admin Key">{{ config.admin_key_configured ? config.admin_key_masked : '未设置' }}{{ config.using_default_admin_key ? '（默认）' : '' }}</n-descriptions-item>
+                    <n-descriptions-item label="代理">{{ config.proxy_enabled ? config.proxy_url : '关闭' }}</n-descriptions-item>
+                    <n-descriptions-item label="Base URL">{{ config.base_url }}</n-descriptions-item>
+                  </n-descriptions>
+                </n-card>
+                <n-card title="Token 摘要" :bordered="true">
+                  <div v-if="config.tokens && config.tokens.length" class="token-list">
+                    <div v-for="token in config.tokens" :key="token.index" class="token-row">
+                      <n-tag size="small">#{{ token.index }}</n-tag>
+                      <span class="mono">{{ token.masked }}</span>
+                      <span class="muted">{{ token.length }} chars</span>
+                    </div>
+                  </div>
+                  <div v-else class="empty-box">还没有配置 Freebuff Token</div>
+                </n-card>
+              </div>
+            </section>
+
+            <section v-if="tab === 'tokens'" class="panel-grid">
+              <n-card :bordered="true">
+                <div class="section-head">
+                  <h3>Freebuff Token 列表</h3>
+                  <n-button type="primary" @click="openTokenModal('add')">添加 Token</n-button>
+                </div>
+                <div v-if="config.tokens && config.tokens.length" class="token-list">
+                  <div v-for="token in config.tokens" :key="token.index" class="token-row">
+                    <n-tag size="small">#{{ token.index }}</n-tag>
+                    <span class="mono">{{ token.masked }}</span>
+                    <span class="muted">{{ token.length }} chars</span>
+                    <span class="token-actions">
+                      <n-button size="small" secondary :loading="loading.tokenRead === token.index" @click="openTokenModal('edit', token.index)">修改</n-button>
+                      <n-button size="small" secondary :loading="loading.verify === token.index" @click="verifySavedToken(token.index)">验证</n-button>
+                      <n-popconfirm @positive-click="deleteToken(token.index)">
+                        <template #trigger>
+                          <n-button size="small" tertiary type="error" :loading="loading.tokenDelete === token.index">删除</n-button>
+                        </template>
+                        删除这个 Freebuff Token？
+                      </n-popconfirm>
+                    </span>
+                  </div>
+                </div>
+                <div v-else class="empty-box">还没有配置 Freebuff Token，点击右上角添加。</div>
+                <n-alert v-if="lastEnv" style="margin-top: 16px;" type="info" title="环境变量文本">
+                  <div class="env-box">{{ lastEnv }}</div>
+                </n-alert>
+              </n-card>
+              <n-card title="显示规则" :bordered="true">
+                <p class="muted">列表默认只显示脱敏 token，不展示完整值。</p>
+                <p class="muted">点击“修改”时才会读取完整 token 并显示在弹窗输入框中。</p>
+                <p class="muted">本地或常驻服务器保存后会写入 .env 并立即替换账号池；Vercel 只返回环境变量文本。</p>
+              </n-card>
+            </section>
+
+            <section v-if="tab === 'apiKey'" class="panel-grid">
+              <n-card title="API Key" :bordered="true">
+                <n-alert type="default" style="margin-bottom: 16px;">
+                  当前 API Key：{{ config.api_key_configured ? config.api_key_masked : '未设置' }}
+                </n-alert>
+                <n-form>
+                  <n-form-item label="新的 API Key">
+                    <n-input v-model:value="apiKeyForm.api_key" type="password" show-password-on="click" placeholder="用于 /v1/* 接口的 Authorization Bearer key" />
+                  </n-form-item>
+                  <n-button type="primary" :loading="loading.apiKey" @click="saveApiKey">保存 API Key</n-button>
+                </n-form>
+              </n-card>
+              <n-card title="调用方式" :bordered="true">
+                <div class="env-box">Authorization: Bearer {{ apiKeyForm.api_key || config.api_key_masked || 'your-api-key' }}</div>
+                <p class="muted">API Key 和管理员 Key 分开管理。API Key 用于外部客户端调用模型接口。</p>
+              </n-card>
+            </section>
+
+            <section v-if="tab === 'env'" class="panel-grid">
+              <n-card title="Env 配置" :bordered="true">
+                <n-alert :type="envInfo.environment === 'vercel' ? 'warning' : 'info'" style="margin-bottom: 16px;">
+                  {{ envInfo.message || '正在读取环境配置' }}
+                </n-alert>
+                <n-descriptions label-placement="left" :column="1" size="small" bordered style="margin-bottom: 16px;">
+                  <n-descriptions-item label="环境">{{ envInfo.environment || '-' }}</n-descriptions-item>
+                  <n-descriptions-item label="路径">{{ envInfo.path || '-' }}</n-descriptions-item>
+                  <n-descriptions-item label="文件状态">{{ envInfo.exists ? '存在' : '未找到' }}</n-descriptions-item>
+                </n-descriptions>
+                <pre class="env-box">{{ envInfo.content || (envInfo.environment === 'vercel' ? '请在 Vercel Environment Variables 中查看和修改变量。' : '当前没有 .env 内容。') }}</pre>
+                <n-space style="margin-top: 14px;">
+                  <n-button type="primary" secondary :loading="loading.env" @click="loadEnv(true)">刷新 Env</n-button>
+                  <n-button secondary :disabled="!envInfo.content" @click="copyEnvContent">复制内容</n-button>
+                </n-space>
+              </n-card>
+              <n-card title="Vercel 修改方式" :bordered="true">
+                <p class="muted">进入 Vercel 项目页面，打开 Settings -> Environment Variables。</p>
+                <p class="muted">修改 `FREEBUFF_TOKEN`、`FREEBUFF_API_KEY`、`FREEBUFF_ADMIN_KEY` 等变量后，需要重新部署。</p>
+                <p class="muted">本地 `.env` 不会上传到 GitHub，也不会被 Vercel 自动读取。</p>
+              </n-card>
+            </section>
+
+            <section v-if="tab === 'network'" class="panel-grid">
+              <n-card title="服务器网络环境" :bordered="true">
+                <n-space style="margin-bottom: 14px;">
+                  <n-button type="primary" secondary :loading="loading.network" @click="loadNetwork(true)">重新检测</n-button>
+                  <n-tag :type="networkInfo.region && networkInfo.region.ok ? 'success' : 'warning'">{{ networkInfo.region && networkInfo.region.ok ? '定位成功' : '定位失败' }}</n-tag>
+                </n-space>
+                <n-descriptions label-placement="left" :column="1" size="small" bordered>
+                  <n-descriptions-item label="服务器公网 IP">{{ networkInfo.region && networkInfo.region.ip || '-' }}</n-descriptions-item>
+                  <n-descriptions-item label="国家/地区">{{ networkInfo.region && networkInfo.region.country || '-' }}</n-descriptions-item>
+                  <n-descriptions-item label="省市">{{ [networkInfo.region && networkInfo.region.region, networkInfo.region && networkInfo.region.city].filter(Boolean).join(' / ') || '-' }}</n-descriptions-item>
+                  <n-descriptions-item label="时区">{{ networkInfo.region && networkInfo.region.timezone || '-' }}</n-descriptions-item>
+                  <n-descriptions-item label="运营商">{{ networkInfo.region && networkInfo.region.org || '-' }}</n-descriptions-item>
+                  <n-descriptions-item label="来源">{{ networkInfo.region && networkInfo.region.source || '-' }} {{ networkInfo.region && networkInfo.region.latency_ms ? `(${networkInfo.region.latency_ms}ms)` : '' }}</n-descriptions-item>
+                </n-descriptions>
+              </n-card>
+              <n-card title="连通性" :bordered="true">
+                <div v-if="networkInfo.connectivity && networkInfo.connectivity.length" class="token-list">
+                  <div v-for="item in networkInfo.connectivity" :key="item.name" class="token-row" style="grid-template-columns: 90px 1fr 90px 1fr;">
+                    <n-tag size="small" :type="item.ok ? 'success' : 'error'">{{ item.name }}</n-tag>
+                    <span>{{ item.ok ? '可访问' : '失败' }}</span>
+                    <span class="muted">{{ item.status || '-' }}</span>
+                    <span class="muted">{{ item.latency_ms ? `${item.latency_ms}ms` : (item.error || '-') }}</span>
+                  </div>
+                </div>
+                <div v-else class="empty-box">尚未检测网络连通性</div>
+                <n-alert style="margin-top: 16px;" type="default">
+                  代理：{{ networkInfo.proxy_enabled ? networkInfo.proxy_url || '已开启' : '未开启' }}
+                </n-alert>
+              </n-card>
+            </section>
+
+            <section v-if="tab === 'logs'">
+              <div class="log-toolbar">
+                <n-select v-model:value="logLevel" :options="logLevels" style="width: 160px" />
+                <n-input-number v-model:value="logLimit" :min="50" :max="1000" :step="50" style="width: 140px" />
+                <n-switch v-model:value="logAutoRefresh" @update:value="syncLogAutoRefresh">
+                  <template #checked>自动刷新</template>
+                  <template #unchecked>手动刷新</template>
+                </n-switch>
+                <span class="muted">{{ logAutoRefresh ? `每 ${logRefreshSeconds} 秒刷新` : '自动刷新已关闭' }}</span>
+                <n-button type="primary" secondary :loading="loading.logs" @click="loadLogs(false)">刷新日志</n-button>
+                <n-button secondary @click="copyLogs">复制当前日志</n-button>
+              </div>
+              <div class="log-view">
+                <div v-if="!logs.length" class="muted">暂无日志</div>
+                <div v-for="line in logs" :key="line.id" class="log-line">
+                  <span>{{ line.time }}</span>
+                  <span :class="'log-level-' + line.level">{{ line.level }}</span>
+                  <span>{{ line.logger }}</span>
+                  <span class="log-message">{{ line.message }}</span>
+                  <pre v-if="line.detail" class="log-detail">{{ line.detail }}</pre>
+                </div>
+              </div>
+            </section>
+
+            <section v-if="tab === 'test'" class="panel-grid">
+              <n-card title="模型调用" :bordered="true">
+                <n-form>
+                  <n-form-item label="模型 ID">
+                    <n-select v-model:value="testForm.model" :options="modelOptions" :loading="loading.models" filterable placeholder="从 /v1/models 获取模型" />
+                  </n-form-item>
+                  <n-form-item label="Prompt">
+                    <n-input v-model:value="testForm.prompt" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" />
+                  </n-form-item>
+                  <n-space>
+                    <n-button type="primary" :loading="loading.test" @click="runChatTest">发送请求</n-button>
+                    <n-button secondary :loading="loading.models" @click="loadModels">刷新模型</n-button>
+                  </n-space>
+                </n-form>
+              </n-card>
+              <n-card title="调用结果" :bordered="true">
+                <pre class="env-box">{{ testResult || '尚未发送请求' }}</pre>
+              </n-card>
+            </section>
+
+            <section v-if="tab === 'settings'" class="panel-grid">
+              <n-card title="管理员 Key" :bordered="true">
+                <n-form>
+                  <n-form-item label="新的 Admin Key">
+                    <n-input v-model:value="security.admin_key" type="password" show-password-on="click" placeholder="至少 8 位，保存后需要重新登录" />
+                  </n-form-item>
+                  <n-button type="primary" :loading="loading.security" @click="saveSecurity">保存管理员 Key</n-button>
+                </n-form>
+              </n-card>
+              <n-card title="GitHub 发布提示" :bordered="true">
+                <p class="muted">确认 .env 不提交到仓库；README 中只放变量名和示例，不放真实 token。</p>
+                <p class="muted">公开部署时必须设置 FREEBUFF_ADMIN_KEY 和 FREEBUFF_API_KEY。</p>
+              </n-card>
+            </section>
+
+            <n-modal v-model:show="tokenModal.show" preset="card" :title="tokenModal.mode === 'add' ? '添加 Freebuff Token' : '修改 Freebuff Token'" style="width: min(640px, 92vw)">
+              <n-alert v-if="tokenModal.mode === 'add'" type="info" style="margin-bottom: 16px;">
+                已打开 Token 获取页面。完成认证后复制 token，回到这里粘贴并保存。也可以手动打开：
+                <a :href="tokenHelpUrl" target="_blank" rel="noopener">{{ tokenHelpUrl }}</a>
+              </n-alert>
+              <n-form>
+                <n-form-item label="完整 Token">
+                  <n-input v-model:value="tokenModal.token" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" placeholder="粘贴完整 Freebuff Token" />
+                </n-form-item>
+                <n-space>
+                  <n-button type="primary" :loading="loading.tokens" @click="saveTokenModal">保存并生效</n-button>
+                  <n-button secondary :disabled="!tokenModal.token" :loading="loading.verify === 0" @click="verifyTokenValue(tokenModal.token)">验证当前输入</n-button>
+                </n-space>
+              </n-form>
+            </n-modal>
+          </main>
+        </div>
+    </n-config-provider>
+  </div>
+
+  <script>
+    const { createApp, ref, reactive, computed, onMounted, onUnmounted, watch } = Vue;
+
+    function normalizeError(error) {
+      return error && error.message ? error.message : String(error || '请求失败');
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options
+      });
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) : null;
+      if (!response.ok) {
+        throw new Error(payload && payload.detail ? payload.detail : `HTTP ${response.status}`);
+      }
+      return payload;
+    }
+
+    createApp({
+      setup() {
+        const { message } = naive.createDiscreteApi(['message']);
+        const checkingSession = ref(true);
+        const authed = ref(false);
+        const loginKey = ref('');
+        const initialTab = (location.hash || '').replace(/^#\/?/, '') || 'overview';
+        const tab = ref(initialTab);
+        const overview = reactive({});
+        const config = reactive({ tokens: [] });
+        const envInfo = reactive({});
+        const networkInfo = reactive({ region: {}, connectivity: [] });
+        const logs = ref([]);
+        const logLevel = ref('');
+        const logLimit = ref(200);
+        const logAutoRefresh = ref(true);
+        const logRefreshSeconds = ref(5);
+        const logTimer = ref(null);
+        const lastEnv = ref('');
+        const testResult = ref('');
+        const modelOptions = ref([]);
+        const testForm = reactive({ model: '', prompt: '请用一句话回复当前服务状态。' });
+        const tokenHelpUrl = 'https://freebuff.071129.xyz/';
+        const tokenModal = reactive({ show: false, mode: 'add', index: null, token: '' });
+        const apiKeyForm = reactive({ api_key: '' });
+        const security = reactive({ admin_key: '' });
+        const loading = reactive({
+          login: false,
+          page: false,
+          tokens: false,
+          tokenRead: null,
+          tokenDelete: null,
+          verify: null,
+          logs: false,
+          models: false,
+          test: false,
+          apiKey: false,
+          env: false,
+          network: false,
+          security: false
+        });
+
+        const nav = [
+          { key: 'overview', label: '概览', subtitle: '服务状态、账号池和当前配置' },
+          { key: 'tokens', label: 'Token', subtitle: '新增、验证并立即应用 Freebuff Token' },
+          { key: 'apiKey', label: 'API Key', subtitle: '单独管理外部调用接口使用的访问密钥' },
+          { key: 'env', label: 'Env', subtitle: '查看本地 .env 内容和部署环境提示' },
+          { key: 'network', label: '网络', subtitle: '检测当前服务器公网地区、代理和上游连通性' },
+          { key: 'logs', label: '日志', subtitle: '查看当前实例内存中的运行日志' },
+          { key: 'test', label: '测试', subtitle: '快速发起一次模型调用' },
+          { key: 'settings', label: '设置', subtitle: '修改后台管理员 Key' }
+        ];
+        if (!nav.some(item => item.key === tab.value)) tab.value = 'overview';
+        watch(tab, value => {
+          if (!nav.some(item => item.key === value)) return;
+          const nextHash = `#/${value}`;
+          if (location.hash !== nextHash) history.replaceState(null, '', nextHash);
+          syncLogAutoRefresh();
+        });
+        watch(authed, syncLogAutoRefresh);
+        const logLevels = [
+          { label: '全部等级', value: '' },
+          { label: 'DEBUG', value: 'DEBUG' },
+          { label: 'INFO', value: 'INFO' },
+          { label: 'WARNING', value: 'WARNING' },
+          { label: 'ERROR', value: 'ERROR' }
+        ];
+        const active = computed(() => nav.find(item => item.key === tab.value) || nav[0]);
+        const activeTitle = computed(() => active.value.label);
+        const activeSubtitle = computed(() => active.value.subtitle);
+
+        function assign(target, source) {
+          Object.keys(target).forEach(key => delete target[key]);
+          Object.assign(target, source || {});
+        }
+
+        async function login() {
+          loading.login = true;
+          try {
+            await api('/admin/api/login', { method: 'POST', body: JSON.stringify({ key: loginKey.value }) });
+            authed.value = true;
+            loginKey.value = '';
+            await refreshAll();
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.login = false;
+          }
+        }
+
+        async function logout() {
+          await api('/admin/api/logout', { method: 'POST' }).catch(() => null);
+          authed.value = false;
+          stopLogAutoRefresh();
+        }
+
+        async function loadOverview() {
+          const [overviewRes, configRes] = await Promise.all([
+            api('/admin/api/overview'),
+            api('/admin/api/config')
+          ]);
+          assign(overview, overviewRes.data);
+          assign(config, configRes.data);
+        }
+
+        async function loadLogs(showToast = false, silent = false) {
+          if (loading.logs) return;
+          if (!silent) loading.logs = true;
+          try {
+            const qs = new URLSearchParams({ limit: String(logLimit.value) });
+            if (logLevel.value) qs.set('level', logLevel.value);
+            const res = await api(`/admin/api/logs?${qs.toString()}`);
+            logs.value = res.data.items || [];
+            if (showToast) message.success('日志已刷新');
+          } catch (error) {
+            if (!silent) message.error(normalizeError(error));
+          } finally {
+            if (!silent) loading.logs = false;
+          }
+        }
+
+        function stopLogAutoRefresh() {
+          if (logTimer.value) {
+            clearInterval(logTimer.value);
+            logTimer.value = null;
+          }
+        }
+
+        function syncLogAutoRefresh() {
+          stopLogAutoRefresh();
+          if (!authed.value || tab.value !== 'logs' || !logAutoRefresh.value) return;
+          loadLogs(false, true);
+          logTimer.value = setInterval(() => {
+            loadLogs(false, true);
+          }, logRefreshSeconds.value * 1000);
+        }
+
+        async function refreshAll() {
+          loading.page = true;
+          try {
+            await loadOverview();
+            await loadLogs(false);
+            await loadModels(false);
+            await loadEnv(false);
+            await loadNetwork(false);
+          } catch (error) {
+            if (String(error.message || '').includes('401')) authed.value = false;
+          } finally {
+            loading.page = false;
+          }
+        }
+
+        async function checkSession() {
+          checkingSession.value = true;
+          try {
+            const res = await api('/admin/api/session');
+            authed.value = Boolean(res.data && res.data.authenticated);
+            if (authed.value) await refreshAll();
+          } catch {
+            authed.value = false;
+          } finally {
+            checkingSession.value = false;
+          }
+        }
+
+        function openTokenModal(mode, index = null) {
+          tokenModal.show = true;
+          tokenModal.mode = mode;
+          tokenModal.index = index;
+          tokenModal.token = '';
+          if (mode === 'add') {
+            window.open(tokenHelpUrl, '_blank', 'noopener');
+            message.info('已打开 Token 获取页面，复制 token 后回到这里粘贴保存');
+          }
+          if (mode === 'edit' && index) loadTokenForEdit(index);
+        }
+
+        async function loadTokenForEdit(index) {
+          loading.tokenRead = index;
+          try {
+            const res = await api(`/admin/api/freebuff-tokens/${index}`);
+            tokenModal.token = res.data.token || '';
+          } catch (error) {
+            tokenModal.show = false;
+            message.error(normalizeError(error));
+          } finally {
+            loading.tokenRead = null;
+          }
+        }
+
+        async function saveTokenModal() {
+          loading.tokens = true;
+          try {
+            const path = tokenModal.mode === 'edit'
+              ? `/admin/api/freebuff-tokens/${tokenModal.index}`
+              : '/admin/api/freebuff-tokens';
+            const method = tokenModal.mode === 'edit' ? 'PUT' : 'POST';
+            const res = await api(path, { method, body: JSON.stringify({ token: tokenModal.token }) });
+            assign(config, res.data);
+            lastEnv.value = res.data.env || '';
+            tokenModal.show = false;
+            tokenModal.token = '';
+            message.success(res.data.persisted ? '已保存并立即生效' : '当前环境不持久写入，请复制环境变量');
+            await refreshAll();
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.tokens = false;
+          }
+        }
+
+        async function deleteToken(index) {
+          loading.tokenDelete = index;
+          try {
+            const res = await api(`/admin/api/freebuff-tokens/${index}`, { method: 'DELETE' });
+            assign(config, res.data);
+            lastEnv.value = res.data.env || '';
+            message.success(res.data.persisted ? '已删除并立即生效' : '已生成新的环境变量文本');
+            await refreshAll();
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.tokenDelete = null;
+          }
+        }
+
+        async function verifyTokenValue(token, marker = 0) {
+          loading.verify = marker;
+          try {
+            const res = await api('/admin/api/freebuff-tokens/verify', { method: 'POST', body: JSON.stringify({ token }) });
+            res.data.ok ? message.success(res.data.info) : message.warning(res.data.info);
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.verify = null;
+          }
+        }
+
+        async function verifySavedToken(index) {
+          loading.verify = index;
+          try {
+            const tokenRes = await api(`/admin/api/freebuff-tokens/${index}`);
+            const res = await api('/admin/api/freebuff-tokens/verify', { method: 'POST', body: JSON.stringify({ token: tokenRes.data.token }) });
+            res.data.ok ? message.success(res.data.info) : message.warning(res.data.info);
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.verify = null;
+          }
+        }
+
+        async function loadModels(showToast = false) {
+          loading.models = true;
+          try {
+            const res = await api('/admin/api/models');
+            const models = (res.data && res.data.data) || [];
+            modelOptions.value = models.map(item => ({ label: item.id, value: item.id }));
+            if (!testForm.model && modelOptions.value.length) testForm.model = modelOptions.value[0].value;
+            if (showToast) message.success('模型列表已刷新');
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.models = false;
+          }
+        }
+
+        async function loadEnv(showToast = false) {
+          loading.env = true;
+          try {
+            const res = await api('/admin/api/env');
+            assign(envInfo, res.data);
+            if (showToast) message.success('Env 已刷新');
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.env = false;
+          }
+        }
+
+        async function loadNetwork(showToast = false) {
+          loading.network = true;
+          try {
+            const res = await api('/admin/api/network');
+            assign(networkInfo, res.data);
+            if (showToast) message.success('网络环境已刷新');
+          } catch (error) {
+            if (showToast) message.error(normalizeError(error));
+          } finally {
+            loading.network = false;
+          }
+        }
+
+        async function runChatTest() {
+          loading.test = true;
+          testResult.value = '';
+          try {
+            const res = await api('/admin/api/chat-test', { method: 'POST', body: JSON.stringify(testForm) });
+            testResult.value = JSON.stringify(res.data, null, 2);
+          } catch (error) {
+            testResult.value = normalizeError(error);
+          } finally {
+            loading.test = false;
+          }
+        }
+
+        async function saveSecurity() {
+          loading.security = true;
+          try {
+            await api('/admin/api/security', { method: 'PUT', body: JSON.stringify(security) });
+            message.success('已保存，请使用新的 Admin Key 重新登录');
+            authed.value = false;
+            security.admin_key = '';
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.security = false;
+          }
+        }
+
+        async function saveApiKey() {
+          loading.apiKey = true;
+          try {
+            const res = await api('/admin/api/api-key', { method: 'PUT', body: JSON.stringify(apiKeyForm) });
+            assign(config, res.data);
+            apiKeyForm.api_key = '';
+            message.success(res.data.persisted ? 'API Key 已保存' : '当前环境不持久写入，请到 Vercel 配置环境变量');
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.apiKey = false;
+          }
+        }
+
+        async function copyLogs() {
+          const text = logs.value.map(item => {
+            const line = `${item.time} ${item.level} [${item.logger}] ${item.message}`;
+            return item.detail ? `${line}\n${item.detail}` : line;
+          }).join('\n');
+          await navigator.clipboard.writeText(text);
+          message.success('日志已复制');
+        }
+
+        async function copyEnvContent() {
+          await navigator.clipboard.writeText(envInfo.content || '');
+          message.success('Env 内容已复制');
+        }
+
+        onMounted(checkSession);
+        onUnmounted(stopLogAutoRefresh);
+
+        return {
+          checkingSession, authed, loginKey, tab, nav, overview, config, logs, logLevel, logLimit,
+          logLevels, logAutoRefresh, logRefreshSeconds, lastEnv, envInfo, networkInfo, modelOptions, testForm, testResult, tokenHelpUrl, tokenModal,
+          apiKeyForm, security, loading, activeTitle, activeSubtitle,
+          login, logout, refreshAll, loadLogs, loadModels, loadEnv, loadNetwork, syncLogAutoRefresh, openTokenModal,
+          saveTokenModal, deleteToken, verifyTokenValue, verifySavedToken,
+          runChatTest, saveSecurity, saveApiKey, copyLogs, copyEnvContent
+        };
+      }
+    }).use(naive).mount('#app');
+  </script>
+</body>
+</html>

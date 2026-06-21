@@ -1,0 +1,10 @@
+{
+  "regions": ["fra1"],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index.py"
+    }
+  ]
+}
+
