@@ -279,140 +279,250 @@ def openai_to_anthropic(
 
 # ─── OpenAI Streaming Chunk → Anthropic SSE Events ────────────────
 
+
 class AnthropicStreamTransformer:
-    """Transforms an OpenAI streaming chunk iterator into Anthropic SSE events."""
+    """Transforms an OpenAI streaming chunk iterator into Anthropic SSE events.
+
+    Handles text, thinking/reasoning, and tool_use blocks with proper
+    block lifecycle (start → delta* → stop). Supports deferred finish_reason
+    for DeepSeek-style APIs that send finish_reason before arguments arrive.
+    """
 
     def __init__(self, model: str) -> None:
         self.model = model
         self._message_id: str = ""
         self._has_started = False
-        self._has_content_block = False
         self._input_tokens: int = 0
         self._output_tokens: int = 0
-        self._text_content = ""
-        self._reasoning_content = ""
+        self._stream_finished = False
+
+        # Block tracking — open blocks are pushed/popped in order
+        self._open_blocks: list[int] = []  # stack of open block indices
+        self._next_block_index: int = -1
+
+        # New block index allocator
+        self._thinking_block_index: int | None = None
+        self._text_block_index: int | None = None
+
+        # Tool call tracking: OpenAI tool_call index → tool block state
+        # ToolBlockState: {anthropic_index, id, name, args_buffer, started}
+        self._tool_blocks: dict[int, dict[str, Any]] = {}
+        self._has_tool_use = False
+
+        # Deferred finish handling (DeepSeek sends finish_reason before args arrive)
+        self._deferred_finish_reason: str | None = None
+        self._deferred_output_tokens: int = 0
+
+    # ── Block management ──────────────────────────────────────
+
+    def _alloc_block_index(self) -> int:
+        self._next_block_index += 1
+        self._open_blocks.append(self._next_block_index)
+        return self._next_block_index
+
+    def _start_block(self, events: list[dict[str, Any]], block_type: str,
+                     extra: dict[str, Any] | None = None) -> int:
+        idx = self._alloc_block_index()
+        block: dict[str, Any] = {"type": block_type}
+        if extra:
+            block.update(extra)
+        events.append({
+            "event": "content_block_start",
+            "data": {
+                "type": "content_block_start",
+                "index": idx,
+                "content_block": block,
+            },
+        })
+        return idx
+
+    def _close_all_blocks(self, events: list[dict[str, Any]]) -> None:
+        for idx in reversed(self._open_blocks):
+            events.append({
+                "event": "content_block_stop",
+                "data": {"type": "content_block_stop", "index": idx},
+            })
+        self._open_blocks.clear()
+
+    def _emit_text_delta(self, events: list[dict[str, Any]], text: str) -> None:
+        idx = self._text_block_index if self._text_block_index is not None else (
+            self._open_blocks[-1] if self._open_blocks else self._alloc_block_index())
+        events.append({
+            "event": "content_block_delta",
+            "data": {
+                "type": "content_block_delta",
+                "index": idx,
+                "delta": {"type": "text_delta", "text": text},
+            },
+        })
+
+    def _emit_thinking_delta(self, events: list[dict[str, Any]],
+                             thinking: str) -> None:
+        events.append({
+            "event": "content_block_delta",
+            "data": {
+                "type": "content_block_delta",
+                "index": self._thinking_block_index or 0,
+                "delta": {"type": "thinking_delta", "thinking": thinking},
+            },
+        })
+
+    def _emit_tool_args_delta(self, events: list[dict[str, Any]],
+                              block_idx: int, partial_json: str) -> None:
+        events.append({
+            "event": "content_block_delta",
+            "data": {
+                "type": "content_block_delta",
+                "index": block_idx,
+                "delta": {"type": "input_json_delta", "partial_json": partial_json},
+            },
+        })
+
+    def _emit_finish_events(self, events: list[dict[str, Any]],
+                            stop_reason: str) -> None:
+        self._close_all_blocks(events)
+        fr_str = f'"{stop_reason}"' if stop_reason else "null"
+        events.append({
+            "event": "message_delta",
+            "data": {
+                "type": "message_delta",
+                "delta": {"stop_reason": stop_reason or None,
+                          "stop_sequence": None},
+                "usage": {"output_tokens": self._output_tokens},
+            },
+        })
+        events.append({
+            "event": "message_stop",
+            "data": {"type": "message_stop"},
+        })
+
+    # ── Public API ───────────────────────────────────────────
 
     def process_chunk(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:
         """
         Process one OpenAI streaming chunk, return list of Anthropic SSE event dicts.
-        Each event dict has: {"event": str, "data": dict}
+        Each event dict:: {"event": str, "data": dict}
         """
         events: list[dict[str, Any]] = []
         choices = chunk.get("choices") or []
         delta = choices[0].get("delta", {}) if choices else {}
         finish_reason = choices[0].get("finish_reason") if choices else None
 
-        # Track IDs and usage
+        # Track IDs and model
         self._message_id = chunk.get("id") or self._message_id
 
-        # Usage may appear in the final chunk
+        # Usage may appear in any chunk (esp. final one)
         if chunk.get("usage"):
             usage = chunk["usage"]
             self._input_tokens = usage.get("prompt_tokens", 0)
             self._output_tokens = usage.get("completion_tokens", 0)
 
-        # Get content deltas
         content = delta.get("content") if isinstance(delta, dict) else None
         reasoning = delta.get("reasoning_content") if isinstance(delta, dict) else None
+        raw_tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
 
-        # --- message_start (first chunk with role) ---
-        if not self._has_started and delta.get("role") == "assistant":
+        # --- message_start (once) ---
+        if not self._has_started and (
+                delta.get("role") == "assistant"
+                or content is not None
+                or reasoning is not None
+                or raw_tool_calls is not None
+        ):
             self._has_started = True
             events.append(self._message_start_event())
 
-        # If first chunk has content but no role yet, emit start
-        if not self._has_started and (content is not None or reasoning is not None):
-            self._has_started = True
-            events.append(self._message_start_event())
-
-        # --- reasoning handling ---
+        # --- reasoning / thinking content ---
         if reasoning:
-            if not self._reasoning_content and not self._has_content_block:
-                self._has_content_block = True
-                events.append({
-                    "event": "content_block_start",
-                    "data": {
-                        "type": "content_block_start",
-                        "index": 0,
-                        "content_block": {"type": "thinking", "thinking": ""},
-                    },
-                })
-            if reasoning:
-                self._reasoning_content += reasoning
-                events.append({
-                    "event": "content_block_delta",
-                    "data": {
-                        "type": "content_block_delta",
-                        "index": 0,
-                        "delta": {"type": "thinking_delta", "thinking": reasoning},
-                    },
-                })
+            if self._thinking_block_index is None:
+                self._thinking_block_index = self._start_block(
+                    events, "thinking", {"thinking": ""})
+            self._emit_thinking_delta(events, reasoning)
 
         # --- text content ---
-        if content is not None:
-            content_index = 1 if self._reasoning_content else 0
-            if not self._text_content and not (
-                self._reasoning_content and self._has_content_block
-            ):
-                if not self._has_content_block:
-                    self._has_content_block = True
+        # Only open a text block when there's actual content and we're not
+        # inside a tool_use block that should own the text.
+        if content is not None and content:
+            # Close thinking block if open
+            if self._thinking_block_index is not None and self._thinking_block_index in self._open_blocks:
+                self._close_all_blocks(events)
+                self._thinking_block_index = -1  # mark as closed
+
+            if self._text_block_index is None:
+                self._text_block_index = self._start_block(
+                    events, "text", {"text": ""})
+            self._emit_text_delta(events, content)
+
+        # --- tool calls ---
+        if raw_tool_calls is not None:
+            for tc_raw in raw_tool_calls:
+                tc_index = tc_raw.get("index", 0)
+                fn = tc_raw.get("function", {})
+                tc_id = tc_raw.get("id", "")
+                tc_name = fn.get("name", "") if isinstance(fn, dict) else ""
+                tc_args = fn.get("arguments", "") if isinstance(fn, dict) else ""
+
+                # First tool call ever — close all open text/thinking blocks
+                if not self._has_tool_use:
+                    self._has_tool_use = True
+                    self._close_all_blocks(events)
+
+                if tc_index not in self._tool_blocks:
+                    block: dict[str, Any] = {
+                        "anthropic_index": -1,
+                        "id": tc_id,
+                        "name": tc_name or "",
+                        "args_buffer": tc_args or "",
+                        "started": False,
+                    }
+                    self._tool_blocks[tc_index] = block
+                else:
+                    block = self._tool_blocks[tc_index]
+                    if tc_id:
+                        block["id"] = tc_id
+                    if tc_name:
+                        block["name"] += tc_name
+                    if tc_args:
+                        block["args_buffer"] += tc_args
+
+                b = self._tool_blocks[tc_index]
+                # Start tool_use content block once we have id + name
+                if not b["started"] and b["id"] and b["name"]:
+                    b["started"] = True
+                    b["anthropic_index"] = self._alloc_block_index()
                     events.append({
                         "event": "content_block_start",
                         "data": {
                             "type": "content_block_start",
-                            "index": content_index,
-                            "content_block": {"type": "text", "text": ""},
+                            "index": b["anthropic_index"],
+                            "content_block": {
+                                "type": "tool_use",
+                                "id": b["id"],
+                                "name": b["name"],
+                                "input": {},
+                            },
                         },
                     })
-            if content:
-                self._text_content += content
-                events.append({
-                    "event": "content_block_delta",
-                    "data": {
-                        "type": "content_block_delta",
-                        "index": content_index,
-                        "delta": {"type": "text_delta", "text": content},
-                    },
-                })
+                    # Flush buffered arguments from the same chunk
+                    if b["args_buffer"]:
+                        self._emit_tool_args_delta(
+                            events, b["anthropic_index"], b["args_buffer"])
+                elif b["started"] and tc_args:
+                    self._emit_tool_args_delta(
+                        events, b["anthropic_index"], tc_args)
 
-        # Ensure first text content block starts even on empty first delta
-        if content == "" and not self._has_content_block and not self._reasoning_content:
-            self._has_content_block = True
-            events.append({
-                "event": "content_block_start",
-                "data": {
-                    "type": "content_block_start",
-                    "index": 0,
-                    "content_block": {"type": "text", "text": ""},
-                },
-            })
-
-        # --- finish ---
+        # --- finish reason ---
         if finish_reason:
-            # Close text block
-            text_index = 1 if self._reasoning_content else 0
-            if self._has_content_block:
-                events.append({
-                    "event": "content_block_stop",
-                    "data": {"type": "content_block_stop", "index": text_index},
-                })
-
-            # message_delta with stop_reason
-            stop_reason = _FINISH_REASON_MAP.get(finish_reason, "end_turn")
-            events.append({
-                "event": "message_delta",
-                "data": {
-                    "type": "message_delta",
-                    "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                    "usage": {"output_tokens": self._output_tokens},
-                },
-            })
-
-            # message_stop
-            events.append({
-                "event": "message_stop",
-                "data": {"type": "message_stop"},
-            })
+            # DeepSeek sends finish_reason="tool_calls" BEFORE arguments arrive.
+            # Defer the finish signal when tool_use blocks are still accumulating args.
+            if (finish_reason == "tool_calls"
+                    and self._has_tool_use
+                    and len(self._open_blocks) > 0):
+                self._deferred_finish_reason = finish_reason
+                self._deferred_output_tokens = self._output_tokens
+            else:
+                self._stream_finished = True
+                self._emit_finish_events(
+                    events, _FINISH_REASON_MAP.get(finish_reason, "end_turn"))
 
         return events
 
@@ -420,19 +530,23 @@ class AnthropicStreamTransformer:
         """Emit closing events if the stream ended without finish_reason."""
         events: list[dict[str, Any]] = []
 
+        if self._stream_finished:
+            return events
+
+        # Handle deferred finish (DeepSeek tool_calls)
+        if self._deferred_finish_reason:
+            self._output_tokens = self._deferred_output_tokens
+            self._emit_finish_events(
+                events, _FINISH_REASON_MAP.get(self._deferred_finish_reason, "end_turn"))
+            self._stream_finished = True
+            self._deferred_finish_reason = None
+            return events
+
         if not self._has_started:
-            # Stream ended before any data — emit empty message
             events.append(self._message_start_event())
 
-        if self._has_started and self._has_content_block:
-            # Close any open content blocks
-            text_index = 1 if self._reasoning_content else 0
-            events.append({
-                "event": "content_block_stop",
-                "data": {"type": "content_block_stop", "index": text_index},
-            })
-
         if self._has_started:
+            self._close_all_blocks(events)
             events.append({
                 "event": "message_delta",
                 "data": {

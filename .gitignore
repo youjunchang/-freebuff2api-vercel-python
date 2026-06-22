@@ -11,3 +11,5 @@ wheels/
 
 # Local configuration
 .env
+配置信息.txt
+域名配置.txt

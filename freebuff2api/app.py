@@ -21,6 +21,11 @@ from .codebuff import (
 )
 from .config import Settings, load_settings
 from .logging_config import configure_logging, redact_headers, render_debug
+from .anthropic_compat import (
+    AnthropicStreamTransformer,
+    anthropic_to_openai,
+    openai_to_anthropic,
+)
 from .openai_compat import (
     CompletionAccumulator,
     build_upstream_payload,
@@ -28,7 +33,7 @@ from .openai_compat import (
     sanitize_stream_chunk,
 )
 from .models import CONTEXT_PRUNER_AGENT_ID, FreebuffModel, models_response, resolve_model
-from .sse import decode_sse_data, encode_sse
+from .sse import decode_sse_data, encode_anthropic_sse, encode_sse
 
 
 logger = logging.getLogger("freebuff2api.app")
@@ -212,6 +217,119 @@ async def chat_completions(request: Request) -> Any:
         return _error_response(error)
     finally:
         await lease.aclose()
+
+
+@app.post("/v1/messages")
+async def anthropic_messages(request: Request) -> Any:
+    """Anthropic Messages API endpoint — translates to OpenAI format and back."""
+    _check_local_auth(request, require_configured=True)
+    _check_freebuff_token(request)
+    body = await request.json()
+    openai_body = anthropic_to_openai(body)
+    target_model = openai_body.get("model", "")
+    logger.info(
+        "anthropic messages request model=%s stream=%s messages=%s",
+        target_model,
+        openai_body.get("stream") is True,
+        len(openai_body.get("messages") or []),
+    )
+
+    settings = _settings(request)
+    try:
+        model_config = resolve_model(target_model)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    messages = normalize_chat_messages(openai_body.get("messages"))
+    lease: CodebuffAccountLease | None = None
+    try:
+        lease = await _accounts(request).acquire_session(
+            model_config.session_id,
+            messages=messages,
+        )
+        client = lease.client
+        await client.request_ad_chain(messages=messages)
+        await client.validate_agents()
+        run = await _start_freebuff_run_chain(client, model_config)
+        trace_session_id = str(uuid.uuid4())
+        payload = build_upstream_payload(
+            {**openai_body, "messages": messages},
+            session=lease.session,
+            run_id=run.payload_run_id,
+            client_id=settings.client_id,
+            trace_session_id=trace_session_id,
+            upstream_model_id=model_config.upstream_id,
+        )
+    except CodebuffError as error:
+        if lease is not None:
+            await lease.aclose()
+        logger.warning("failed to prepare messages completion: %s", error, exc_info=settings.debug)
+        return _error_response(error)
+    except Exception as error:
+        if lease is not None:
+            await lease.aclose()
+        logger.exception("failed to prepare messages completion")
+        return _error_response(error)
+
+    if openai_body.get("stream") is True:
+        def _is_anthropic_error(chunk: dict[str, Any]) -> bool:
+            return "error" in chunk
+        return StreamingResponse(
+            _anthropic_stream_wrapper(
+                _stream_openai_chunks(request, payload, run, account_lease=lease),
+                model=target_model,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    try:
+        response = await _collect_completion(
+            request,
+            payload,
+            run,
+            model_config.id,
+            client=lease.client,
+        )
+        return JSONResponse(openai_to_anthropic(response, target_model))
+    except Exception as error:
+        return _error_response(error)
+    finally:
+        await lease.aclose()
+
+
+async def _anthropic_stream_wrapper(
+    openai_stream: AsyncIterator[bytes],
+    model: str,
+) -> AsyncIterator[bytes]:
+    """Wrap an OpenAI SSE stream iterator and yield Anthropic-format SSE events."""
+    transformer = AnthropicStreamTransformer(model)
+    async for raw in openai_stream:
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            import json as _json
+            chunk = _json.loads(payload)
+        except _json.JSONDecodeError:
+            continue
+        # If upstream returned an error, pass it through
+        if "error" in chunk:
+            yield encode_sse(chunk)
+            continue
+        events = transformer.process_chunk(chunk)
+        for event in events:
+            yield encode_anthropic_sse(event["event"], event["data"])
+
+    for event in transformer.flush():
+        yield encode_anthropic_sse(event["event"], event["data"])
 
 
 async def _stream_openai_chunks(
