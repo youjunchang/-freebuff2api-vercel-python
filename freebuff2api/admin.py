@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
+import json
 import os
+import secrets
 import time
+import urllib.parse
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
@@ -10,7 +14,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from .codebuff import CodebuffAccountPool, CodebuffClient, CodebuffError
 from .config import DEFAULT_ADMIN_KEY, Settings, project_env_path, write_env_values
@@ -23,6 +27,16 @@ COOKIE_MAX_AGE = 60 * 60 * 12
 NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
 router = APIRouter()
+
+_auth_sessions: dict[str, dict[str, Any]] = {}
+
+BASE_FREEBUFF = "https://freebuff.com"
+BASE_CODEBUFF = "https://www.codebuff.com"
+
+
+def _auth_endpoints(mode: str) -> tuple[str, str]:
+    base = BASE_CODEBUFF if mode == "codebuff" else BASE_FREEBUFF
+    return f"{base}/api/auth/cli/code", f"{base}/api/auth/cli/status"
 
 
 def _settings(request: Request) -> Settings:
@@ -452,6 +466,137 @@ async def delete_token(request: Request, index: int) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Token not found")
     tokens.pop(index - 1)
     return _api_ok(await _save_token_list(request, tokens), "token deleted")
+
+
+@router.post("/admin/api/token-auth/start")
+async def start_token_auth(request: Request) -> dict[str, Any]:
+    _check_admin_auth(request)
+    body = await request.json()
+    mode = str(body.get("mode") or "freebuff")
+    if mode not in ("freebuff", "codebuff"):
+        raise HTTPException(status_code=400, detail="unsupported mode")
+
+    code_url, status_url = _auth_endpoints(mode)
+    fingerprint_id = f"fb-{secrets.token_hex(8)}"
+    settings = _settings(request)
+
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        proxy=settings.upstream_proxy_url,
+        trust_env=False,
+    ) as client:
+        resp = await client.post(
+            code_url,
+            json={"fingerprintId": fingerprint_id},
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "Bun/1.3.11",
+            },
+        )
+        if resp.status_code >= 400:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Upstream auth code failed: HTTP {resp.status_code}",
+            )
+        code = resp.json()
+
+    _auth_sessions[fingerprint_id] = {
+        "mode": mode,
+        "fingerprint_id": fingerprint_id,
+        "fingerprint_hash": code["fingerprintHash"],
+        "expires_at": code["expiresAt"],
+        "status_url": status_url,
+    }
+    return {
+        "mode": mode,
+        "fingerprint_id": fingerprint_id,
+        "login_url": code["loginUrl"],
+        "expires_at": code["expiresAt"],
+    }
+
+
+@router.get("/admin/api/token-auth/poll/{fingerprint_id}")
+async def poll_token_auth(request: Request, fingerprint_id: str):
+    session = _auth_sessions.get(fingerprint_id)
+    if not session:
+
+        async def _err():
+            yield f"data: {json.dumps({'event': 'error', 'message': 'session not found'})}\n\n"
+
+        return StreamingResponse(
+            _err(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    settings = _settings(request)
+
+    async def event_generator():
+        qs = urllib.parse.urlencode(
+            {
+                "fingerprintId": session["fingerprint_id"],
+                "fingerprintHash": session["fingerprint_hash"],
+                "expiresAt": str(session["expires_at"]),
+            }
+        )
+        url = f"{session['status_url']}?{qs}"
+        deadline = time.monotonic() + 5 * 60
+        attempt = 0
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0),
+            proxy=settings.upstream_proxy_url,
+            trust_env=False,
+        ) as client:
+            while time.monotonic() < deadline:
+                attempt += 1
+                try:
+                    resp = await client.get(
+                        url,
+                        headers={
+                            "Accept": "application/json",
+                            "User-Agent": "Bun/1.3.11",
+                        },
+                    )
+                    if resp.status_code == 401:
+                        yield (
+                            f"data: {json.dumps({'event': 'pending', 'attempt': attempt}, ensure_ascii=False)}\n\n"
+                        )
+                        await asyncio.sleep(2.0)
+                        continue
+                    if resp.status_code >= 400:
+                        yield (
+                            f"data: {json.dumps({'event': 'error', 'message': f'HTTP {resp.status_code}'}, ensure_ascii=False)}\n\n"
+                        )
+                        break
+
+                    data = resp.json()
+                    user = data.get("user")
+                    if user and user.get("authToken"):
+                        yield (
+                            f"data: {json.dumps({'event': 'success', 'user': user}, ensure_ascii=False)}\n\n"
+                        )
+                        break
+                    yield (
+                        f"data: {json.dumps({'event': 'pending', 'attempt': attempt}, ensure_ascii=False)}\n\n"
+                    )
+                except Exception as e:
+                    yield (
+                        f"data: {json.dumps({'event': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+                    )
+                    break
+                await asyncio.sleep(2.0)
+            else:
+                yield f"data: {json.dumps({'event': 'timeout'}, ensure_ascii=False)}\n\n"
+
+        _auth_sessions.pop(fingerprint_id, None)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.put("/admin/api/api-key")
