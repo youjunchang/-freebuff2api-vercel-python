@@ -189,7 +189,7 @@
     .token-list { display: grid; gap: 8px; }
     .token-row {
       display: grid;
-      grid-template-columns: 56px minmax(0, 1fr) 92px 230px;
+      grid-template-columns: 56px minmax(0, 1fr) 92px 86px 230px;
       gap: 10px;
       align-items: center;
       padding: 10px 12px;
@@ -197,6 +197,7 @@
       border-radius: 8px;
       background: #fbfdff;
     }
+    .token-row.token-summary { grid-template-columns: 56px minmax(0, 1fr) 92px 86px; }
     .token-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
     .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
     .section-head h3 { margin: 0; font-size: 16px; }
@@ -448,10 +449,11 @@
                 </n-card>
                 <n-card title="Token 摘要" :bordered="true">
                   <div v-if="config.tokens && config.tokens.length" class="token-list">
-                    <div v-for="token in config.tokens" :key="token.index" class="token-row">
+                    <div v-for="token in config.tokens" :key="token.index" class="token-row token-summary">
                       <n-tag size="small">#{{ token.index }}</n-tag>
                       <span class="mono">{{ token.masked }}</span>
                       <span class="muted">{{ token.length }} chars</span>
+                      <n-tag size="small" :type="tokenStatusType(token.status)">{{ tokenStatusText(token.status) }}</n-tag>
                     </div>
                   </div>
                   <div v-else class="empty-box">还没有配置 Freebuff Token</div>
@@ -509,7 +511,7 @@
 
                   <!-- 完成后的操作 -->
                   <div v-if="tokenAuth.completed && tokenAuth.token" class="auth-result-actions">
-                    <n-button type="primary" :loading="loading.tokens" @click="saveAcquiredToken">
+                    <n-button type="primary" :loading="loading.tokens" :disabled="tokenAuth.saved" @click="saveAcquiredToken">
                       📋 添加到 Token 列表
                     </n-button>
                     <n-button secondary @click="copyAcquiredToken">
@@ -527,6 +529,7 @@
                     <n-tag size="small">#{{ token.index }}</n-tag>
                     <span class="mono">{{ token.masked }}</span>
                     <span class="muted">{{ token.length }} chars</span>
+                    <n-tag size="small" :type="tokenStatusType(token.status)">{{ tokenStatusText(token.status) }}</n-tag>
                     <span class="token-actions">
                       <n-button size="small" secondary :loading="loading.tokenRead === token.index" @click="openTokenModal('edit', token.index)">修改</n-button>
                       <n-button size="small" secondary :loading="loading.verify === token.index" @click="verifySavedToken(token.index)">验证</n-button>
@@ -761,6 +764,7 @@
           statusText: '',
           token: '',
           saveResult: '',
+          saved: false,
           es: null
         });
         const loading = reactive({
@@ -975,11 +979,17 @@
           }
         }
 
+        function updateTokenStatus(index, status) {
+          const row = (config.tokens || []).find(item => item.index === index);
+          if (row) row.status = status;
+        }
+
         async function verifySavedToken(index) {
           loading.verify = index;
           try {
             const tokenRes = await api(`/admin/api/freebuff-tokens/${index}`);
             const res = await api('/admin/api/freebuff-tokens/verify', { method: 'POST', body: JSON.stringify({ token: tokenRes.data.token }) });
+            updateTokenStatus(index, res.data.ok ? 'valid' : 'invalid');
             res.data.ok ? message.success(res.data.info) : message.warning(res.data.info);
           } catch (error) {
             message.error(normalizeError(error));
@@ -1087,6 +1097,7 @@
           tokenAuth.loginUrl = '';
           tokenAuth.fingerprintId = '';
           tokenAuth.saveResult = '';
+          tokenAuth.saved = false;
           tokenAuth.loading = false;
         }
 
@@ -1125,6 +1136,7 @@
                 tokenAuth.polling = false;
                 tokenAuth.completed = true;
                 tokenAuth.token = data.user.authToken || '';
+                tokenAuth.saved = false;
                 tokenAuth.statusText = `Token 获取成功！用户：${data.user.name || data.user.email || '未知'}`;
               } else if (data.event === 'timeout') {
                 closeTokenAuthES();
@@ -1153,7 +1165,7 @@
         }
 
         async function saveAcquiredToken() {
-          if (!tokenAuth.token) return;
+          if (!tokenAuth.token || tokenAuth.saved) return;
           loading.tokens = true;
           try {
             const res = await api('/admin/api/freebuff-tokens', {
@@ -1162,6 +1174,8 @@
             });
             assign(config, res.data);
             lastEnv.value = res.data.env || '';
+            tokenAuth.saved = true;
+            updateTokenStatus(config.token_count, 'valid');
             tokenAuth.saveResult = 'Token 已添加到列表并生效';
             message.success(res.data.persisted ? '已保存并立即生效' : '当前环境不持久写入，请复制环境变量');
             await refreshAll();
@@ -1193,6 +1207,18 @@
           message.success('Env 内容已复制');
         }
 
+        function tokenStatusType(status) {
+          if (status === 'valid') return 'success';
+          if (status === 'invalid') return 'error';
+          return 'default';
+        }
+
+        function tokenStatusText(status) {
+          if (status === 'valid') return '有效';
+          if (status === 'invalid') return '失效';
+          return '未验证';
+        }
+
         onMounted(checkSession);
         onUnmounted(() => { stopLogAutoRefresh(); closeTokenAuthES(); });
 
@@ -1203,7 +1229,8 @@
           login, logout, refreshAll, loadLogs, loadModels, loadEnv, loadNetwork, syncLogAutoRefresh, openTokenModal,
           saveTokenModal, deleteToken, verifyTokenValue, verifySavedToken,
           runChatTest, saveSecurity, saveApiKey, copyLogs, copyEnvContent,
-          tokenAuth, startTokenAuth, cancelTokenAuth, saveAcquiredToken, copyAcquiredToken, resetTokenAuth
+          tokenAuth, startTokenAuth, cancelTokenAuth, saveAcquiredToken, copyAcquiredToken, resetTokenAuth,
+          tokenStatusType, tokenStatusText
         };
       }
     }).use(naive).mount('#app');

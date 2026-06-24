@@ -94,7 +94,11 @@ def _mask(value: str | None, *, keep: int = 6) -> str:
     return f"{value[:keep]}...{value[-keep:]}"
 
 
-def _token_rows(settings: Settings) -> list[dict[str, Any]]:
+def _token_rows(
+    settings: Settings,
+    token_statuses: dict[int, str] | None = None,
+) -> list[dict[str, Any]]:
+    token_statuses = token_statuses or {}
     rows = []
     for index, token in enumerate(settings.codebuff_tokens, start=1):
         rows.append(
@@ -103,17 +107,19 @@ def _token_rows(settings: Settings) -> list[dict[str, Any]]:
                 "masked": _mask(token),
                 "prefix": token[:8],
                 "length": len(token),
+                "status": token_statuses.get(index, "unknown"),
             }
         )
     return rows
 
 
-def _config_payload(settings: Settings) -> dict[str, Any]:
+def _config_payload(settings: Settings, accounts: CodebuffAccountPool | None = None) -> dict[str, Any]:
     using_default_admin_key = settings.admin_key == DEFAULT_ADMIN_KEY
+    token_statuses = accounts.token_statuses if accounts is not None else {}
     return {
         "environment": "vercel" if _is_vercel() else "local",
         "token_count": len(settings.codebuff_tokens),
-        "tokens": _token_rows(settings),
+        "tokens": _token_rows(settings, token_statuses),
         "api_key_configured": bool(settings.local_api_key),
         "api_key_masked": _mask(settings.local_api_key),
         "admin_key_configured": bool(settings.admin_key),
@@ -155,7 +161,12 @@ def _tokens(settings: Settings) -> list[str]:
     return list(settings.codebuff_tokens)
 
 
-async def _save_token_list(request: Request, tokens: list[str]) -> dict[str, Any]:
+async def _save_token_list(
+    request: Request,
+    tokens: list[str],
+    *,
+    valid_index: int | None = None,
+) -> dict[str, Any]:
     clean_tokens = [item.strip() for item in tokens if item and item.strip()]
     token_value = ",".join(clean_tokens)
     old_settings = _settings(request)
@@ -164,8 +175,10 @@ async def _save_token_list(request: Request, tokens: list[str]) -> dict[str, Any
         write_env_values({"FREEBUFF_TOKEN": token_value or None})
     _apply_env({"FREEBUFF_TOKEN": token_value or None})
     await _replace_accounts(request, new_settings)
+    if valid_index is not None:
+        request.app.state.accounts.set_token_status(valid_index, "valid")
     return {
-        **_config_payload(new_settings),
+        **_config_payload(new_settings, request.app.state.accounts),
         "persisted": not _is_vercel(),
         "env": f"FREEBUFF_TOKEN={token_value}",
     }
@@ -192,7 +205,7 @@ async def login(request: Request) -> JSONResponse:
         raise HTTPException(status_code=503, detail="Set FREEBUFF_ADMIN_KEY first")
     if not hmac.compare_digest(key, expected):
         raise HTTPException(status_code=401, detail="Invalid admin key")
-    response = JSONResponse(_api_ok(_config_payload(_settings(request))))
+    response = JSONResponse(_api_ok(_config_payload(_settings(request), request.app.state.accounts)))
     response.set_cookie(
         COOKIE_NAME,
         _cookie_value(_admin_secret(_settings(request)) or expected),
@@ -321,7 +334,7 @@ async def overview(request: Request) -> dict[str, Any]:
 @router.get("/admin/api/config")
 async def config(request: Request) -> dict[str, Any]:
     _check_admin_auth(request)
-    return _api_ok(_config_payload(_settings(request)))
+    return _api_ok(_config_payload(_settings(request), request.app.state.accounts))
 
 
 @router.get("/admin/api/env")
@@ -441,7 +454,10 @@ async def add_token(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Token is required")
     tokens = _tokens(_settings(request))
     tokens.append(token)
-    return _api_ok(await _save_token_list(request, tokens), "token added")
+    return _api_ok(
+        await _save_token_list(request, tokens, valid_index=len(tokens)),
+        "token added",
+    )
 
 
 @router.put("/admin/api/freebuff-tokens/{index}")
@@ -612,7 +628,7 @@ async def save_api_key(request: Request) -> dict[str, Any]:
     _apply_env({"FREEBUFF_API_KEY": api_key})
     request.app.state.settings = new_settings
     return _api_ok(
-        {**_config_payload(new_settings), "persisted": not _is_vercel()},
+        {**_config_payload(new_settings, request.app.state.accounts), "persisted": not _is_vercel()},
         "api key saved",
     )
 
@@ -637,7 +653,7 @@ async def save_security(request: Request) -> JSONResponse:
     response = JSONResponse(
         _api_ok(
             {
-                **_config_payload(new_settings),
+                **_config_payload(new_settings, request.app.state.accounts),
                 "persisted": not _is_vercel(),
             },
             "security saved",

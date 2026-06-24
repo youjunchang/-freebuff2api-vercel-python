@@ -682,6 +682,7 @@ class SessionManager:
 class CodebuffAccount:
     client: CodebuffClient
     sessions: SessionManager
+    token_index: int = 0
     busy: bool = False
 
 
@@ -706,13 +707,17 @@ class CodebuffAccountPool:
     def __init__(self, settings: Settings) -> None:
         tokens = settings.codebuff_tokens or (None,)
         self._accounts: list[CodebuffAccount] = []
-        for token in tokens:
+        self._token_statuses: dict[int, str] = {}
+        for token_index, token in enumerate(tokens, start=1):
+            if token is not None:
+                self._token_statuses[token_index] = "unknown"
             account_settings = replace(settings, codebuff_token=token)
             client = CodebuffClient(account_settings)
             self._accounts.append(
                 CodebuffAccount(
                     client=client,
                     sessions=SessionManager(client, account_settings),
+                    token_index=token_index,
                 )
             )
         self._next_index = 0
@@ -730,11 +735,94 @@ class CodebuffAccountPool:
     def default_sessions(self) -> SessionManager:
         return self._accounts[0].sessions
 
+    @property
+    def token_statuses(self) -> dict[int, str]:
+        return dict(self._token_statuses)
+
+    def set_token_status(self, index: int, status: str) -> None:
+        if index in self._token_statuses:
+            self._token_statuses[index] = status
+
     async def aclose(self) -> None:
         await asyncio.gather(
             *(account.client.aclose() for account in self._accounts),
             return_exceptions=True,
         )
+
+    async def preload_ads(self) -> None:
+        await asyncio.gather(
+            *(
+                account.sessions._request_ads_and_streak(surface="waiting_room")
+                for account in self._accounts
+            )
+        )
+
+    async def validate_tokens(self) -> None:
+        if not self._accounts or self._accounts[0].client.settings.codebuff_token is None:
+            return
+
+        results = await asyncio.gather(
+            *(
+                self._validate_account_token(index, account)
+                for index, account in enumerate(self._accounts)
+            ),
+            return_exceptions=True,
+        )
+        valid_accounts: list[CodebuffAccount] = []
+        invalid_accounts: list[CodebuffAccount] = []
+        for account, result in zip(self._accounts, results, strict=True):
+            if result is False:
+                self._token_statuses[account.token_index] = "invalid"
+                invalid_accounts.append(account)
+            else:
+                if result is True:
+                    self._token_statuses[account.token_index] = "valid"
+                valid_accounts.append(account)
+
+        if not valid_accounts:
+            logger.warning(
+                "token validation found no valid accounts; keeping all configured accounts"
+            )
+            return
+
+        if invalid_accounts:
+            self._accounts = valid_accounts
+            self._next_index = 0
+            await asyncio.gather(
+                *(account.client.aclose() for account in invalid_accounts),
+                return_exceptions=True,
+            )
+            logger.warning(
+                "token validation removed invalid accounts count=%s active_count=%s",
+                len(invalid_accounts),
+                len(self._accounts),
+            )
+
+    async def _validate_account_token(
+        self,
+        index: int,
+        account: CodebuffAccount,
+    ) -> bool | None:
+        try:
+            await account.client.get_session()
+        except CodebuffError as error:
+            if "Invalid Codebuff API key" in str(error) or error.status_code == 401:
+                logger.warning("token validation failed index=%s: %s", index + 1, error)
+                return False
+            logger.warning(
+                "token validation could not verify index=%s; keeping account: %s",
+                index + 1,
+                error,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "token validation unexpected error index=%s; keeping account",
+                index + 1,
+            )
+            return None
+        logger.info("token validation passed index=%s", index + 1)
+        return True
 
     async def acquire_session(
         self,

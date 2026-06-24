@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import logging
+import os
 from typing import Any, AsyncIterator
 import uuid
 
@@ -44,19 +45,56 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings()
     configure_logging(settings)
     accounts = CodebuffAccountPool(settings)
+    preload_task: asyncio.Task[None] | None = None
     app.state.settings = settings
     app.state.accounts = accounts
     app.state.codebuff = accounts.default_client
     app.state.sessions = accounts.default_sessions
     logger.info("configured freebuff accounts count=%s", accounts.account_count)
+    if not _is_vercel_environment():
+        preload_task = asyncio.create_task(_startup_maintenance(app, accounts, settings))
+    elif settings.preload_ads:
+        logger.info("startup maintenance skipped in Vercel environment")
+    else:
+        logger.info("token validation skipped in Vercel environment")
+    if settings.preload_ads and _is_vercel_environment():
+        logger.info("preload ads enabled but skipped in Vercel environment")
+    elif not settings.preload_ads:
+        logger.info("preload ads disabled")
     try:
         yield
     finally:
+        if preload_task is not None and not preload_task.done():
+            preload_task.cancel()
+            await asyncio.gather(preload_task, return_exceptions=True)
         await accounts.aclose()
 
 
+async def _startup_maintenance(
+    app: FastAPI,
+    accounts: CodebuffAccountPool,
+    settings: Settings,
+) -> None:
+    try:
+        await accounts.validate_tokens()
+        app.state.codebuff = accounts.default_client
+        app.state.sessions = accounts.default_sessions
+        logger.info("startup token validation completed active_count=%s", accounts.account_count)
+        if settings.preload_ads:
+            logger.info("preload ads enabled; running startup waiting-room ads")
+            await accounts.preload_ads()
+            logger.info("startup ads preload completed")
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("startup maintenance failed")
+
 app = FastAPI(title="freebuff2api", version="0.1.0", lifespan=lifespan)
 app.include_router(admin_router)
+
+
+def _is_vercel_environment() -> bool:
+    return os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV"))
 
 
 def _settings(request: Request) -> Settings:

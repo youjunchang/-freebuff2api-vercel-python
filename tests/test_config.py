@@ -40,6 +40,18 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(settings.proxy_enabled)
         self.assertEqual(settings.upstream_proxy_url, "socks5://127.0.0.1:1080")
 
+    def test_load_settings_reads_preload_ads_toggle(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "FREEBUFF_PRELOAD_ADS": "true",
+            },
+            clear=True,
+        ):
+            settings = load_settings()
+
+        self.assertTrue(settings.preload_ads)
+
     def test_freebuff_api_base_url_overrides_legacy_codebuff_base_url(self) -> None:
         with patch.dict(
             "os.environ",

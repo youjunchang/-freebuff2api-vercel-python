@@ -117,6 +117,7 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(revealed.status_code, 200)
         self.assertEqual(revealed.json()["data"]["token"], "token-b")
         self.assertEqual(added.json()["data"]["token_count"], 3)
+        self.assertEqual(added.json()["data"]["tokens"][2]["status"], "valid")
         self.assertEqual(updated.json()["data"]["tokens"][1]["masked"], "*" * len("token-b-new"))
         self.assertEqual(deleted.json()["data"]["token_count"], 2)
 

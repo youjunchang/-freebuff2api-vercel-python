@@ -126,6 +126,18 @@ class PoolClient:
         }
 
 
+class TokenValidationClient(PoolClient):
+    async def get_session(self, instance_id=None):
+        if self.settings.codebuff_token == "bad-token":
+            raise CodebuffError('Codebuff request failed: 401 {"message":"Invalid Codebuff API key"}', 401)
+        return await super().get_session(instance_id)
+
+
+class InvalidTokenValidationClient(PoolClient):
+    async def get_session(self, instance_id=None):
+        raise CodebuffError('Codebuff request failed: 401 {"message":"Invalid Codebuff API key"}', 401)
+
+
 class SessionManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_switch_model_deletes_active_upstream_session_before_create(self):
         client = SwitchModelClient()
@@ -204,6 +216,45 @@ class SessionManagerTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await second.aclose()
                 await first.aclose()
+                await pool.aclose()
+
+    async def test_account_pool_validation_removes_invalid_tokens(self):
+        settings = Settings(
+            codebuff_token="token-a,bad-token,token-b",
+            local_api_key=None,
+        )
+
+        with patch("freebuff2api.codebuff.CodebuffClient", TokenValidationClient):
+            pool = CodebuffAccountPool(settings)
+            await pool.validate_tokens()
+            first = await pool.acquire_session("deepseek/deepseek-v4-flash")
+            second = await pool.acquire_session("deepseek/deepseek-v4-flash")
+            try:
+                self.assertEqual(pool.account_count, 2)
+                self.assertEqual(
+                    pool.token_statuses,
+                    {1: "valid", 2: "invalid", 3: "valid"},
+                )
+                self.assertEqual(first.client.settings.codebuff_token, "token-a")
+                self.assertEqual(second.client.settings.codebuff_token, "token-b")
+            finally:
+                await second.aclose()
+                await first.aclose()
+                await pool.aclose()
+
+    async def test_account_pool_validation_keeps_accounts_when_all_tokens_invalid(self):
+        settings = Settings(
+            codebuff_token="bad-token,also-bad",
+            local_api_key=None,
+        )
+
+        with patch("freebuff2api.codebuff.CodebuffClient", InvalidTokenValidationClient):
+            pool = CodebuffAccountPool(settings)
+            try:
+                await pool.validate_tokens()
+                self.assertEqual(pool.account_count, 2)
+                self.assertEqual(pool.token_statuses, {1: "invalid", 2: "invalid"})
+            finally:
                 await pool.aclose()
 
 
