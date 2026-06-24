@@ -176,6 +176,8 @@ class OpenAICompatTests(unittest.TestCase):
                 "provider": {"data_collection": "allow"},
                 "codebuff_metadata": {"cost_mode": "paid"},
                 "unexpected": "client-owned",
+                "verbosity": "high",
+                "n": 2,
             },
             session=FreebuffSession(
                 instance_id="instance-1",
@@ -187,8 +189,42 @@ class OpenAICompatTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["temperature"], 0.2)
+        self.assertEqual(payload["verbosity"], "high")
         self.assertNotIn("unexpected", payload)
         self.assertEqual(payload["provider"], {"data_collection": "deny"})
+        self.assertEqual(payload["codebuff_metadata"]["cost_mode"], "free")
+        self.assertEqual(payload["codebuff_metadata"]["n"], 2)
+
+    def test_build_upstream_payload_merges_extra_metadata_without_reserved_overrides(
+        self,
+    ) -> None:
+        payload = build_upstream_payload(
+            {
+                "model": "deepseek/deepseek-v4-pro",
+                "messages": [],
+                "codebuff_metadata": {
+                    "freebuff_instance_id": "wrong",
+                    "trace_session_id": "wrong",
+                    "run_id": "wrong",
+                    "client_id": "wrong",
+                    "cost_mode": "paid",
+                    "custom_tag": "kept",
+                },
+            },
+            session=FreebuffSession(
+                instance_id="instance-1",
+                model="deepseek/deepseek-v4-pro",
+            ),
+            run_id="run-1",
+            client_id="client-1",
+            trace_session_id="trace-1",
+        )
+
+        self.assertEqual(payload["codebuff_metadata"]["custom_tag"], "kept")
+        self.assertEqual(payload["codebuff_metadata"]["freebuff_instance_id"], "instance-1")
+        self.assertEqual(payload["codebuff_metadata"]["trace_session_id"], "trace-1")
+        self.assertEqual(payload["codebuff_metadata"]["run_id"], "run-1")
+        self.assertEqual(payload["codebuff_metadata"]["client_id"], "client-1")
         self.assertEqual(payload["codebuff_metadata"]["cost_mode"], "free")
 
     def test_accumulator_keeps_reasoning_content_separate(self) -> None:

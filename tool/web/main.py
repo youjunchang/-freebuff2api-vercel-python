@@ -20,6 +20,7 @@ load_dotenv()
 BASE_FREEBUFF = "https://freebuff.com"
 BASE_CODEBUFF = "https://www.codebuff.com"
 VERIFY_URL = "https://www.codebuff.com/api/v1/freebuff/session"
+CODEBUFF_JSON_USER_AGENT = "Bun/1.3.14"
 SUPPORTED_MODES = {"freebuff", "codebuff"}
 NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 
@@ -60,7 +61,7 @@ async def _request_code(fingerprint_id: str, code_url: str) -> dict[str, Any]:
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": "Bun/1.3.11",
+                "User-Agent": CODEBUFF_JSON_USER_AGENT,
             },
             timeout=30,
         )
@@ -93,7 +94,7 @@ async def _poll_status_sse(
                     url,
                     headers={
                         "Accept": "application/json",
-                        "User-Agent": "Bun/1.3.11",
+                        "User-Agent": CODEBUFF_JSON_USER_AGENT,
                     },
                     timeout=15,
                 )
@@ -224,7 +225,7 @@ async def verify_token_endpoint(request: Request):
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "*/*",
-                    "User-Agent": "Bun/1.3.11",
+                    "User-Agent": CODEBUFF_JSON_USER_AGENT,
                 },
                 timeout=15,
             )

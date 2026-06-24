@@ -32,6 +32,18 @@ _UPSTREAM_CHAT_KEYS = frozenset(
         "top_logprobs",
         "top_p",
         "user",
+        "verbosity",
+    }
+)
+
+_RESERVED_CODEBUFF_METADATA_KEYS = frozenset(
+    {
+        "freebuff_instance_id",
+        "trace_session_id",
+        "run_id",
+        "client_id",
+        "cost_mode",
+        "n",
     }
 )
 
@@ -107,14 +119,31 @@ def build_upstream_payload(
     payload.setdefault("stop", ['"cb_easp"'])
 
     payload["provider"] = {"data_collection": "deny"}
-    payload["codebuff_metadata"] = {
-        "freebuff_instance_id": session.instance_id,
-        "trace_session_id": trace_session_id or str(uuid.uuid4()),
-        "run_id": run_id,
-        "client_id": client_id,
-        "cost_mode": "free",
-    }
+    metadata = _client_codebuff_metadata(body)
+    metadata.update(
+        {
+            "freebuff_instance_id": session.instance_id,
+            "trace_session_id": trace_session_id or str(uuid.uuid4()),
+            "run_id": run_id,
+            "client_id": client_id,
+            "cost_mode": "free",
+        }
+    )
+    if body.get("n") is not None:
+        metadata["n"] = body["n"]
+    payload["codebuff_metadata"] = metadata
     return payload
+
+
+def _client_codebuff_metadata(body: dict[str, Any]) -> dict[str, Any]:
+    metadata = body.get("codebuff_metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        str(key): value
+        for key, value in metadata.items()
+        if key not in _RESERVED_CODEBUFF_METADATA_KEYS and value is not None
+    }
 
 
 def sanitize_stream_chunk(chunk: dict[str, Any]) -> dict[str, Any] | None:

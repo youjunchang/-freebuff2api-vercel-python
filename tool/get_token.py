@@ -14,6 +14,7 @@ BASE_FREEBUFF = "https://freebuff.com"
 BASE_CODEBUFF = "https://www.codebuff.com"
 
 VERIFY_URL = "https://www.codebuff.com/api/v1/freebuff/session"
+CODEBUFF_JSON_USER_AGENT = "Bun/1.3.14"
 
 POLL_INTERVAL = 2.0
 POLL_TIMEOUT = 5 * 60
@@ -33,7 +34,7 @@ def request_code(fingerprint_id: str, code_url: str) -> dict:
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "Bun/1.3.11",
+            "User-Agent": CODEBUFF_JSON_USER_AGENT,
         },
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -63,7 +64,7 @@ def poll_status(
             url,
             headers={
                 "Accept": "application/json",
-                "User-Agent": "Bun/1.3.11",
+                "User-Agent": CODEBUFF_JSON_USER_AGENT,
             },
         )
         try:
@@ -90,7 +91,7 @@ def verify_token(token: str) -> tuple[bool, str]:
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "*/*",
-            "User-Agent": "Bun/1.3.11",
+            "User-Agent": CODEBUFF_JSON_USER_AGENT,
         },
     )
     try:

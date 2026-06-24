@@ -16,7 +16,12 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
-from .codebuff import CodebuffAccountPool, CodebuffClient, CodebuffError
+from .codebuff import (
+    CODEBUFF_JSON_USER_AGENT,
+    CodebuffAccountPool,
+    CodebuffClient,
+    CodebuffError,
+)
 from .config import DEFAULT_ADMIN_KEY, Settings, project_env_path, write_env_values
 from .logging_config import get_buffered_logs
 from .models import DEFAULT_MODEL, models_response
@@ -507,7 +512,7 @@ async def start_token_auth(request: Request) -> dict[str, Any]:
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": "Bun/1.3.11",
+                "User-Agent": CODEBUFF_JSON_USER_AGENT,
             },
         )
         if resp.status_code >= 400:
@@ -572,7 +577,7 @@ async def poll_token_auth(request: Request, fingerprint_id: str):
                         url,
                         headers={
                             "Accept": "application/json",
-                            "User-Agent": "Bun/1.3.11",
+                            "User-Agent": CODEBUFF_JSON_USER_AGENT,
                         },
                     )
                     if resp.status_code == 401:

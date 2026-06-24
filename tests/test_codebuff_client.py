@@ -7,6 +7,7 @@ from freebuff2api.codebuff import CHAT_COMPLETIONS_USER_AGENT
 from freebuff2api.codebuff import CODEBUFF_ACCEPT_ENCODING
 from freebuff2api.codebuff import CodebuffError
 from freebuff2api.codebuff import CodebuffClient
+from freebuff2api.codebuff import FREEBUFF_CLI_USER_AGENT
 from freebuff2api.config import HAR_BROWSER_USER_AGENT
 from freebuff2api.config import Settings
 
@@ -144,6 +145,7 @@ class CodebuffClientTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(client.body["userAgent"], HAR_BROWSER_USER_AGENT)
+        self.assertEqual(client.headers["User-Agent"], FREEBUFF_CLI_USER_AGENT)
         self.assertIsInstance(messages[0]["content"], list)
 
     async def test_request_ads_maps_developer_role_to_system(self) -> None:

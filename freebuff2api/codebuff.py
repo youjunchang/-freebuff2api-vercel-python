@@ -18,8 +18,8 @@ from .models import agent_validation_payload
 logger = logging.getLogger("freebuff2api.codebuff")
 
 CODEBUFF_ACCEPT_ENCODING = "gzip, deflate"
-CODEBUFF_JSON_USER_AGENT = "Bun/1.3.11"
-FREEBUFF_CLI_USER_AGENT = "Freebuff-CLI/0.0.105"
+CODEBUFF_JSON_USER_AGENT = "Bun/1.3.14"
+FREEBUFF_CLI_USER_AGENT = "Freebuff-CLI/0.0.113"
 CHAT_COMPLETIONS_USER_AGENT = (
     "ai-sdk/openai-compatible/0.0.0-test/codebuff "
     "ai-sdk/provider-utils/3.0.20 runtime/browser"
