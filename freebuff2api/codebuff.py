@@ -10,20 +10,22 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .config import HAR_BROWSER_USER_AGENT, Settings
+from .config import Settings
 from .logging_config import redact_headers, render_debug
 from .models import agent_validation_payload
+from .upstream_fingerprint import (
+    DEFAULT_CHAT_COMPLETIONS_USER_AGENT,
+    DEFAULT_CODEBUFF_JSON_USER_AGENT,
+    DEFAULT_FREEBUFF_CLI_USER_AGENT,
+)
 
 
 logger = logging.getLogger("freebuff2api.codebuff")
 
 CODEBUFF_ACCEPT_ENCODING = "gzip, deflate"
-CODEBUFF_JSON_USER_AGENT = "Bun/1.3.14"
-FREEBUFF_CLI_USER_AGENT = "Freebuff-CLI/0.0.113"
-CHAT_COMPLETIONS_USER_AGENT = (
-    "ai-sdk/openai-compatible/0.0.0-test/codebuff "
-    "ai-sdk/provider-utils/3.0.20 runtime/browser"
-)
+CODEBUFF_JSON_USER_AGENT = DEFAULT_CODEBUFF_JSON_USER_AGENT
+FREEBUFF_CLI_USER_AGENT = DEFAULT_FREEBUFF_CLI_USER_AGENT
+CHAT_COMPLETIONS_USER_AGENT = DEFAULT_CHAT_COMPLETIONS_USER_AGENT
 
 
 class CodebuffError(RuntimeError):
@@ -90,7 +92,7 @@ class CodebuffClient:
         self,
         *,
         json_body: bool = False,
-        user_agent: str = CODEBUFF_JSON_USER_AGENT,
+        user_agent: str | None = None,
         require_auth: bool = True,
         extra: dict[str, str] | None = None,
     ) -> dict[str, str]:
@@ -102,7 +104,7 @@ class CodebuffClient:
             "Accept-Encoding": CODEBUFF_ACCEPT_ENCODING,
             "Connection": "keep-alive",
             "Host": _host_header(self.settings.codebuff_api_url),
-            "User-Agent": user_agent,
+            "User-Agent": user_agent or self.settings.fingerprint.codebuff_json_user_agent,
         }
         if require_auth:
             headers["Authorization"] = f"Bearer {self.settings.codebuff_token}"
@@ -295,7 +297,7 @@ class CodebuffClient:
                 "timezone": self.settings.timezone,
                 "locale": self.settings.locale,
             },
-            "userAgent": HAR_BROWSER_USER_AGENT,
+            "userAgent": self.settings.fingerprint.har_browser_user_agent,
         }
         if surface:
             body["surface"] = surface
@@ -305,7 +307,7 @@ class CodebuffClient:
             body=body,
             headers=self._headers(
                 json_body=True,
-                user_agent=FREEBUFF_CLI_USER_AGENT,
+                user_agent=self.settings.fingerprint.freebuff_cli_user_agent,
             ),
         )
 
@@ -357,7 +359,7 @@ class CodebuffClient:
                 headers={
                     "Content-Type": "application/json",
                     "Accept": "*/*",
-                    "User-Agent": CODEBUFF_JSON_USER_AGENT,
+                    "User-Agent": self.settings.fingerprint.codebuff_json_user_agent,
                 },
             )
         except httpx.RequestError as error:
@@ -384,7 +386,7 @@ class CodebuffClient:
             body={"impUrl": imp_url, "mode": "LITE"},
             headers=self._headers(
                 json_body=True,
-                user_agent=FREEBUFF_CLI_USER_AGENT,
+                user_agent=self.settings.fingerprint.freebuff_cli_user_agent,
             ),
         )
 
@@ -461,7 +463,7 @@ class CodebuffClient:
         url = f"{self.settings.codebuff_api_url}/api/v1/chat/completions"
         request_headers = self._headers(
             json_body=True,
-            user_agent=CHAT_COMPLETIONS_USER_AGENT,
+            user_agent=self.settings.fingerprint.chat_completions_user_agent,
         )
         try:
             async with self._client.stream(

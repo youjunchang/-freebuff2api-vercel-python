@@ -6,46 +6,15 @@ from typing import Any
 
 from .codebuff import FreebuffSession
 from .models import resolve_model
-
-
-_UPSTREAM_CHAT_KEYS = frozenset(
-    {
-        "frequency_penalty",
-        "logit_bias",
-        "logprobs",
-        "max_completion_tokens",
-        "max_tokens",
-        "metadata",
-        "modalities",
-        "parallel_tool_calls",
-        "presence_penalty",
-        "reasoning_effort",
-        "response_format",
-        "seed",
-        "service_tier",
-        "stop",
-        "store",
-        "stream_options",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p",
-        "user",
-        "verbosity",
-    }
+from .upstream_fingerprint import (
+    DEFAULT_RESERVED_CODEBUFF_METADATA_KEYS,
+    DEFAULT_UPSTREAM_CHAT_KEYS,
+    UpstreamFingerprint,
 )
 
-_RESERVED_CODEBUFF_METADATA_KEYS = frozenset(
-    {
-        "freebuff_instance_id",
-        "trace_session_id",
-        "run_id",
-        "client_id",
-        "cost_mode",
-        "n",
-    }
-)
+
+_UPSTREAM_CHAT_KEYS = frozenset(DEFAULT_UPSTREAM_CHAT_KEYS)
+_RESERVED_CODEBUFF_METADATA_KEYS = frozenset(DEFAULT_RESERVED_CODEBUFF_METADATA_KEYS)
 
 
 def model_id(requested: str | None = None) -> str:
@@ -107,10 +76,14 @@ def build_upstream_payload(
     client_id: str,
     trace_session_id: str | None = None,
     upstream_model_id: str | None = None,
+    fingerprint: UpstreamFingerprint | None = None,
 ) -> dict[str, Any]:
+    upstream_chat_keys = (
+        frozenset(fingerprint.upstream_chat_keys) if fingerprint else _UPSTREAM_CHAT_KEYS
+    )
     payload = {
         key: body[key]
-        for key in _UPSTREAM_CHAT_KEYS
+        for key in upstream_chat_keys
         if key in body and body[key] is not None
     }
     payload["model"] = upstream_model_id or model_id(body.get("model"))
@@ -119,7 +92,12 @@ def build_upstream_payload(
     payload.setdefault("stop", ['"cb_easp"'])
 
     payload["provider"] = {"data_collection": "deny"}
-    metadata = _client_codebuff_metadata(body)
+    reserved_metadata_keys = (
+        frozenset(fingerprint.reserved_codebuff_metadata_keys)
+        if fingerprint
+        else _RESERVED_CODEBUFF_METADATA_KEYS
+    )
+    metadata = _client_codebuff_metadata(body, reserved_metadata_keys)
     metadata.update(
         {
             "freebuff_instance_id": session.instance_id,
@@ -135,14 +113,17 @@ def build_upstream_payload(
     return payload
 
 
-def _client_codebuff_metadata(body: dict[str, Any]) -> dict[str, Any]:
+def _client_codebuff_metadata(
+    body: dict[str, Any],
+    reserved_keys: frozenset[str],
+) -> dict[str, Any]:
     metadata = body.get("codebuff_metadata")
     if not isinstance(metadata, dict):
         return {}
     return {
         str(key): value
         for key, value in metadata.items()
-        if key not in _RESERVED_CODEBUFF_METADATA_KEYS and value is not None
+        if key not in reserved_keys and value is not None
     }
 
 

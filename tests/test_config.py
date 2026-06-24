@@ -1,4 +1,5 @@
 import unittest
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -51,6 +52,41 @@ class ConfigTests(unittest.TestCase):
             settings = load_settings()
 
         self.assertTrue(settings.preload_ads)
+
+    def test_load_settings_reads_fingerprint_config(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            fingerprint_path = Path(temp_dir) / "fingerprint.json"
+            fingerprint_path.write_text(
+                json.dumps({"codebuff_json_user_agent": "Bun/9.9.9"}),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                "os.environ",
+                {
+                    "FREEBUFF_FINGERPRINT_CONFIG": str(fingerprint_path),
+                    "FREEBUFF_FINGERPRINT_SYNC": "false",
+                },
+                clear=True,
+            ):
+                settings = load_settings()
+
+        self.assertFalse(settings.fingerprint_sync_enabled)
+        self.assertEqual(settings.fingerprint.codebuff_json_user_agent, "Bun/9.9.9")
+
+    def test_official_github_url_derives_raw_base(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "FREEBUFF_OFFICIAL_GITHUB_URL": "https://github.com/CodebuffAI/codebuff",
+            },
+            clear=True,
+        ):
+            settings = load_settings()
+
+        self.assertEqual(
+            settings.fingerprint_github_raw_base,
+            "https://raw.githubusercontent.com/CodebuffAI/codebuff/main",
+        )
 
     def test_freebuff_api_base_url_overrides_legacy_codebuff_base_url(self) -> None:
         with patch.dict(

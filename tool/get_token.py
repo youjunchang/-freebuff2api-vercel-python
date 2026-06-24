@@ -14,7 +14,14 @@ BASE_FREEBUFF = "https://freebuff.com"
 BASE_CODEBUFF = "https://www.codebuff.com"
 
 VERIFY_URL = "https://www.codebuff.com/api/v1/freebuff/session"
-CODEBUFF_JSON_USER_AGENT = "Bun/1.3.14"
+try:
+    from freebuff2api.upstream_fingerprint import load_upstream_fingerprint_config
+except ImportError:
+    CODEBUFF_JSON_USER_AGENT = "Bun/1.3.14"
+else:
+    CODEBUFF_JSON_USER_AGENT = (
+        load_upstream_fingerprint_config().codebuff_json_user_agent
+    )
 
 POLL_INTERVAL = 2.0
 POLL_TIMEOUT = 5 * 60

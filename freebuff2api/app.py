@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import replace
 import logging
 import os
 from typing import Any, AsyncIterator
@@ -35,15 +36,21 @@ from .openai_compat import (
 )
 from .models import CONTEXT_PRUNER_AGENT_ID, FreebuffModel, models_response, resolve_model
 from .sse import decode_sse_data, encode_anthropic_sse, encode_sse
+from .upstream_fingerprint import (
+    fetch_official_upstream_fingerprint,
+    write_upstream_fingerprint_config,
+)
 
 
 logger = logging.getLogger("freebuff2api.app")
+_fingerprint_sync_cache = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings()
     configure_logging(settings)
+    settings = await _sync_upstream_fingerprint(settings)
     accounts = CodebuffAccountPool(settings)
     preload_task: asyncio.Task[None] | None = None
     app.state.settings = settings
@@ -88,6 +95,57 @@ async def _startup_maintenance(
         raise
     except Exception:
         logger.exception("startup maintenance failed")
+
+
+async def _sync_upstream_fingerprint(settings: Settings) -> Settings:
+    global _fingerprint_sync_cache
+    if not settings.fingerprint_sync_enabled:
+        logger.info(
+            "official fingerprint sync disabled; source=%s",
+            settings.fingerprint.source,
+        )
+        return settings
+    if _fingerprint_sync_cache is not None:
+        return replace(settings, fingerprint=_fingerprint_sync_cache)
+    try:
+        fingerprint = await fetch_official_upstream_fingerprint(
+            settings.fingerprint,
+            raw_base_url=settings.fingerprint_github_raw_base,
+            source_url=settings.fingerprint_github_url,
+            proxy_url=settings.upstream_proxy_url,
+            timeout=settings.fingerprint_sync_timeout,
+            os_name=settings.os_name,
+        )
+    except Exception as error:
+        logger.warning(
+            "official fingerprint sync failed; using source=%s: %s",
+            settings.fingerprint.source,
+            error,
+            exc_info=settings.debug,
+        )
+        _fingerprint_sync_cache = settings.fingerprint
+        return settings
+    _fingerprint_sync_cache = fingerprint
+
+    try:
+        write_upstream_fingerprint_config(
+            fingerprint,
+            settings.fingerprint_config_file,
+        )
+    except OSError as error:
+        logger.warning(
+            "official fingerprint config write failed path=%s: %s",
+            settings.fingerprint_config_file,
+            error,
+        )
+    logger.info(
+        "official fingerprint synced source=%s codebuff_ua=%s cli_ua=%s chat_ua=%s",
+        fingerprint.source,
+        fingerprint.codebuff_json_user_agent,
+        fingerprint.freebuff_cli_user_agent,
+        fingerprint.chat_completions_user_agent,
+    )
+    return replace(settings, fingerprint=fingerprint)
 
 app = FastAPI(title="freebuff2api", version="0.1.0", lifespan=lifespan)
 app.include_router(admin_router)
@@ -208,6 +266,7 @@ async def chat_completions(request: Request) -> Any:
             client_id=settings.client_id,
             trace_session_id=trace_session_id,
             upstream_model_id=model_config.upstream_id,
+            fingerprint=settings.fingerprint,
         )
         if settings.debug:
             logger.debug(
@@ -297,6 +356,7 @@ async def anthropic_messages(request: Request) -> Any:
             client_id=settings.client_id,
             trace_session_id=trace_session_id,
             upstream_model_id=model_config.upstream_id,
+            fingerprint=settings.fingerprint,
         )
     except CodebuffError as error:
         if lease is not None:

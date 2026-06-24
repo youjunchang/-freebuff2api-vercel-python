@@ -16,12 +16,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
-from .codebuff import (
-    CODEBUFF_JSON_USER_AGENT,
-    CodebuffAccountPool,
-    CodebuffClient,
-    CodebuffError,
-)
+from .codebuff import CodebuffAccountPool, CodebuffClient, CodebuffError
 from .config import DEFAULT_ADMIN_KEY, Settings, project_env_path, write_env_values
 from .logging_config import get_buffered_logs
 from .models import DEFAULT_MODEL, models_response
@@ -137,6 +132,9 @@ def _config_payload(settings: Settings, accounts: CodebuffAccountPool | None = N
         "proxy_url": _mask(settings.proxy_url, keep=10),
         "base_url": settings.codebuff_api_url,
         "port": settings.port,
+        "fingerprint_source": settings.fingerprint.source,
+        "fingerprint_synced_at": settings.fingerprint.synced_at,
+        "fingerprint_config_path": str(settings.fingerprint_config_file),
     }
 
 
@@ -512,7 +510,7 @@ async def start_token_auth(request: Request) -> dict[str, Any]:
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": CODEBUFF_JSON_USER_AGENT,
+                "User-Agent": settings.fingerprint.codebuff_json_user_agent,
             },
         )
         if resp.status_code >= 400:
@@ -577,7 +575,7 @@ async def poll_token_auth(request: Request, fingerprint_id: str):
                         url,
                         headers={
                             "Accept": "application/json",
-                            "User-Agent": CODEBUFF_JSON_USER_AGENT,
+                            "User-Agent": settings.fingerprint.codebuff_json_user_agent,
                         },
                     )
                     if resp.status_code == 401:
@@ -692,6 +690,7 @@ async def chat_test(request: Request) -> dict[str, Any]:
             client_id=_settings(request).client_id,
             trace_session_id="admin-test",
             upstream_model_id=model_config.upstream_id,
+            fingerprint=_settings(request).fingerprint,
         )
         response = await _collect_completion(request, payload, run, model_config.id, client=lease.client)
         return _api_ok({"ok": True, "response": response})

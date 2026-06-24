@@ -11,6 +11,8 @@ wheels/
 
 # Local configuration
 .env
+freebuff_fingerprint.json
+freebuff_fingerprint.json.tmp
 配置信息.txt
 域名配置.txt
 账号token.txt

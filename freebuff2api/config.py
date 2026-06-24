@@ -2,20 +2,25 @@ from __future__ import annotations
 
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from .upstream_fingerprint import (
+    DEFAULT_HAR_BROWSER_USER_AGENT,
+    OFFICIAL_GITHUB_REPO_URL,
+    UpstreamFingerprint,
+    default_fingerprint_config_path,
+    github_repo_url_to_raw_base,
+    load_upstream_fingerprint_config,
+)
 
 
 load_dotenv()
 
 
-HAR_BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
+HAR_BROWSER_USER_AGENT = DEFAULT_HAR_BROWSER_USER_AGENT
 
 DEFAULT_ADMIN_KEY = "sk-admin"
 
@@ -44,6 +49,12 @@ class Settings:
     timezone: str = "Asia/Shanghai"
     locale: str = "zh-CN"
     os_name: str = "windows"
+    fingerprint_sync_enabled: bool = True
+    fingerprint_github_url: str = OFFICIAL_GITHUB_REPO_URL
+    fingerprint_github_raw_base_override: str = ""
+    fingerprint_config_path: str = ""
+    fingerprint_sync_timeout: float = 8.0
+    fingerprint: UpstreamFingerprint = field(default_factory=UpstreamFingerprint)
 
     @property
     def codebuff_api_url(self) -> str:
@@ -67,6 +78,18 @@ class Settings:
             return ()
         values = [item.strip() for item in self.codebuff_token.split(",")]
         return tuple(item for item in values if item)
+
+    @property
+    def fingerprint_config_file(self) -> Path:
+        if self.fingerprint_config_path:
+            return Path(self.fingerprint_config_path)
+        return default_fingerprint_config_path()
+
+    @property
+    def fingerprint_github_raw_base(self) -> str:
+        if self.fingerprint_github_raw_base_override:
+            return self.fingerprint_github_raw_base_override.strip().rstrip("/")
+        return github_repo_url_to_raw_base(self.fingerprint_github_url)
 
 
 def _csv(name: str, default: str) -> tuple[str, ...]:
@@ -100,6 +123,12 @@ def load_settings() -> Settings:
     debug = _bool("FREEBUFF_DEBUG", False)
     log_level = "DEBUG" if debug else os.getenv("FREEBUFF_LOG_LEVEL", "INFO")
     color_default = os.getenv("NO_COLOR") is None
+    fingerprint_config_path = os.getenv("FREEBUFF_FINGERPRINT_CONFIG", "")
+    fingerprint_path = (
+        Path(fingerprint_config_path)
+        if fingerprint_config_path
+        else default_fingerprint_config_path()
+    )
     return Settings(
         codebuff_token=os.getenv("FREEBUFF_TOKEN") or os.getenv("CODEBUFF_TOKEN"),
         local_api_key=os.getenv("FREEBUFF_API_KEY") or os.getenv("OPENAI_API_KEY"),
@@ -123,6 +152,18 @@ def load_settings() -> Settings:
         timezone=os.getenv("FREEBUFF_TIMEZONE", "Asia/Shanghai"),
         locale=os.getenv("FREEBUFF_LOCALE", "zh-CN"),
         os_name=os.getenv("FREEBUFF_OS", "windows"),
+        fingerprint_sync_enabled=_bool("FREEBUFF_FINGERPRINT_SYNC", True),
+        fingerprint_github_url=os.getenv(
+            "FREEBUFF_OFFICIAL_GITHUB_URL",
+            OFFICIAL_GITHUB_REPO_URL,
+        ),
+        fingerprint_github_raw_base_override=os.getenv(
+            "FREEBUFF_OFFICIAL_GITHUB_RAW_BASE",
+            "",
+        ),
+        fingerprint_config_path=fingerprint_config_path,
+        fingerprint_sync_timeout=float(os.getenv("FREEBUFF_FINGERPRINT_TIMEOUT", "8")),
+        fingerprint=load_upstream_fingerprint_config(fingerprint_path),
     )
 
 
