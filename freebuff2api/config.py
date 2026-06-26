@@ -119,6 +119,18 @@ def _api_base_url() -> str:
     )
 
 
+def _token_from_rotation() -> str | None:
+    """Fallback: read current token group from 账号信息.txt via rotation manager."""
+    try:
+        from .token_rotation import get_rotation_manager
+        mgr = get_rotation_manager()
+        if mgr.group_count > 0:
+            return ",".join(mgr.current_tokens)
+    except Exception:
+        pass
+    return None
+
+
 def load_settings() -> Settings:
     debug = _bool("FREEBUFF_DEBUG", False)
     log_level = "DEBUG" if debug else os.getenv("FREEBUFF_LOG_LEVEL", "INFO")
@@ -130,7 +142,7 @@ def load_settings() -> Settings:
         else default_fingerprint_config_path()
     )
     return Settings(
-        codebuff_token=os.getenv("FREEBUFF_TOKEN") or os.getenv("CODEBUFF_TOKEN"),
+        codebuff_token=os.getenv("FREEBUFF_TOKEN") or os.getenv("CODEBUFF_TOKEN") or _token_from_rotation(),
         local_api_key=os.getenv("FREEBUFF_API_KEY") or os.getenv("OPENAI_API_KEY"),
         admin_key=os.getenv("FREEBUFF_ADMIN_KEY") or DEFAULT_ADMIN_KEY,
         codebuff_base_url=_api_base_url(),

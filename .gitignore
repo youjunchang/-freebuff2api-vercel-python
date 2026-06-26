@@ -16,3 +16,8 @@ freebuff_fingerprint.json.tmp
 配置信息.txt
 域名配置.txt
 账号token.txt
+账号信息.txt
+备份token.txt
+token.json
+tokens.json
+tool/web/accounts.json

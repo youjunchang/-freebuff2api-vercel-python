@@ -745,6 +745,38 @@ class CodebuffAccountPool:
         if index in self._token_statuses:
             self._token_statuses[index] = status
 
+    async def reload(self) -> int:
+        """Reload tokens from .env and rebuild account list. Returns new count."""
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
+        import os
+        self.settings = replace(self.settings,
+                                codebuff_token=os.getenv("FREEBUFF_TOKEN") or os.getenv("CODEBUFF_TOKEN"))
+        # Close old clients
+        await asyncio.gather(
+            *(account.client.aclose() for account in self._accounts),
+            return_exceptions=True,
+        )
+        # Rebuild accounts
+        tokens = self.settings.codebuff_tokens or (None,)
+        self._accounts.clear()
+        self._token_statuses.clear()
+        for token_index, token in enumerate(tokens, start=1):
+            if token is not None:
+                self._token_statuses[token_index] = "unknown"
+            account_settings = replace(self.settings, codebuff_token=token)
+            client = CodebuffClient(account_settings)
+            self._accounts.append(
+                CodebuffAccount(
+                    client=client,
+                    sessions=SessionManager(client, account_settings),
+                    token_index=token_index,
+                )
+            )
+        self._next_index = 0
+        logger.warning("Account pool reloaded: %d tokens", len(self._accounts))
+        return len(self._accounts)
+
     async def aclose(self) -> None:
         await asyncio.gather(
             *(account.client.aclose() for account in self._accounts),

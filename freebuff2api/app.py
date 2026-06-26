@@ -40,14 +40,31 @@ from .upstream_fingerprint import (
     fetch_official_upstream_fingerprint,
     write_upstream_fingerprint_config,
 )
+from .token_rotation import get_rotation_manager, is_rate_limit_error
 
 
 logger = logging.getLogger("freebuff2api.app")
 _fingerprint_sync_cache = None
 
 
+def _init_rotation_on_startup() -> None:
+    """On startup, load token groups from 账号信息.txt and activate 组1."""
+    rotation = get_rotation_manager()
+    if rotation.group_count > 0:
+        rotation.ensure_active_group()
+        logger.info(
+            "Token rotation ready: %d groups, current=%s (%d tokens)",
+            rotation.group_count, rotation.current_group_name, len(rotation.current_tokens),
+        )
+    else:
+        logger.info("Token rotation: no groups found in 账号信息.txt, using .env directly")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Initialize token rotation manager on startup
+    _init_rotation_on_startup()
+
     settings = load_settings()
     configure_logging(settings)
     settings = await _sync_upstream_fingerprint(settings)
@@ -193,6 +210,22 @@ def _check_freebuff_token(request: Request) -> None:
         )
 
 
+async def _handle_rate_limit(request: Request, error: CodebuffError) -> None:
+    """If the error is a 429 rate-limit, rotate token group and reload pool."""
+    msg = str(error)
+    if not is_rate_limit_error(msg):
+        return
+    rotation = get_rotation_manager()
+    if not rotation.group_count:
+        logger.warning("No token groups configured for rotation, skipping")
+        return
+    old_name = rotation.current_group_name
+    new_idx, new_name, tokens = rotation.rotate(reason="429 rate-limit", error_message=msg)
+    logger.warning("429 detected → rotated %s → %s (%d tokens)", old_name, new_name, len(tokens))
+    # Reload account pool with new tokens
+    await request.app.state.accounts.reload()
+
+
 def _error_response(error: Exception) -> JSONResponse:
     if isinstance(error, CodebuffError):
         return JSONResponse(
@@ -278,6 +311,7 @@ async def chat_completions(request: Request) -> Any:
     except CodebuffError as error:
         if lease is not None:
             await lease.aclose()
+        await _handle_rate_limit(request, error)
         logger.warning(
             "failed to prepare chat completion: %s",
             error,
@@ -361,6 +395,7 @@ async def anthropic_messages(request: Request) -> Any:
     except CodebuffError as error:
         if lease is not None:
             await lease.aclose()
+        await _handle_rate_limit(request, error)
         logger.warning("failed to prepare messages completion: %s", error, exc_info=settings.debug)
         return _error_response(error)
     except Exception as error:
@@ -471,6 +506,7 @@ async def _stream_openai_chunks(
                     render_debug(data, settings.log_body_chars),
                 )
     except CodebuffError as error:
+        await _handle_rate_limit(request, error)
         logger.warning(
             "chat stream failed run_id=%s: %s",
             run.run_id,

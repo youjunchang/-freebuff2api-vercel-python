@@ -1,0 +1,2 @@
+cd F:/freebuff2api-vercel-main 
+ F:/claude/python/python.exe -m uvicorn freebuff2api.app:app --host 0.0.0.0 --port 8000

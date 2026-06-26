@@ -64,14 +64,36 @@ GEMINI_FREE_MODELS: tuple[FreebuffModel, ...] = (
 
 ALL_MODELS = FREEBUFF_MODELS + GEMINI_FREE_MODELS
 
+# Claude models are explicitly blocked — only system-provided models are allowed
+_CLAUDE_BLOCKED_PREFIXES = (
+    "claude-",
+    "anthropic/",
+    "anthropic.claude",
+)
+
+_CLAUDE_BLOCK_MESSAGE = (
+    "Claude models are not supported by this service. "
+    "Please use one of the system-provided models instead."
+)
+
+
+def _is_claude_model(model_id: str) -> bool:
+    lower = model_id.lower()
+    for prefix in _CLAUDE_BLOCKED_PREFIXES:
+        if lower.startswith(prefix):
+            return True
+    return False
+
 
 def resolve_model(requested: str | None) -> FreebuffModel:
     if not requested:
         return DEFAULT_MODEL
+    if _is_claude_model(requested):
+        raise ValueError(_CLAUDE_BLOCK_MESSAGE)
     for model in ALL_MODELS:
         if model.id == requested:
             return model
-    raise ValueError(f"Unsupported Freebuff model: {requested}")
+    raise ValueError(f"Unsupported model: {requested}")
 
 
 def models_response() -> dict[str, object]:

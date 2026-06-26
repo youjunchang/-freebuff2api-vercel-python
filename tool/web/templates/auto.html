@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token 自动生成器 🤖</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        :root {
+            --pink: #ff8dc7;
+            --blue: #7ec8f5;
+            --green: #6dcc8a;
+            --red: #e88080;
+            --bg: linear-gradient(160deg, #f8f4ff 0%, #f0f4ff 40%, #fff5f8 100%);
+        }
+        body { background: var(--bg); }
+        .container { max-width: 800px; }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 20px;
+            background: rgba(245,245,250,0.5);
+            border-radius: 14px;
+            padding: 4px;
+            border: 1px solid rgba(220,220,230,0.4);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 11px;
+            background: transparent;
+            color: #888;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s;
+            text-decoration: none;
+            text-align: center;
+        }
+        .tab-btn:hover { background: rgba(255,255,255,0.5); color: #666; }
+        .tab-btn.active {
+            background: linear-gradient(135deg, var(--pink), var(--blue));
+            color: #fff;
+            box-shadow: 0 2px 10px rgba(255,140,200,0.2);
+        }
+
+        /* Stats row */
+        .stats-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            flex: 1;
+            background: rgba(255,255,255,0.6);
+            backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.5);
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-num { font-size: 1.8rem; font-weight: 800; color: #5a5a6e; }
+        .stat-label { font-size: 0.75rem; color: #999; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+        .stat-num.green { color: var(--green); }
+        .stat-num.red { color: var(--red); }
+        .stat-num.blue { color: var(--blue); }
+
+        /* Progress bar */
+        .progress-wrap { margin-bottom: 20px; }
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .progress-label { font-size: 0.8rem; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+        .progress-text { font-size: 0.85rem; font-weight: 700; color: #5a5a6e; }
+        .progress-bar-outer {
+            height: 12px;
+            background: rgba(220,220,230,0.4);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .progress-bar-inner {
+            height: 100%;
+            background: linear-gradient(90deg, var(--pink), var(--blue));
+            border-radius: 6px;
+            transition: width 0.5s ease;
+        }
+
+        /* Section card */
+        .section-card {
+            background: rgba(255,255,255,0.55);
+            backdrop-filter: blur(12px);
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.5);
+            padding: 24px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 20px rgba(135,142,200,0.08);
+        }
+        .section-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 16px;
+        }
+
+        /* Account list */
+        .account-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: rgba(245,245,250,0.5);
+            border-radius: 12px;
+            margin-bottom: 8px;
+            border: 1px solid rgba(220,220,230,0.3);
+            transition: all 0.2s;
+        }
+        .account-item:hover { background: rgba(255,255,255,0.7); }
+        .account-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .account-username { font-weight: 700; color: #5a5a6e; font-size: 0.95rem; }
+        .account-badges { display: flex; gap: 6px; margin-top: 4px; }
+        .badge {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+        .badge-totp { background: rgba(126,200,245,0.15); color: var(--blue); }
+        .badge-active { background: rgba(109,204,138,0.15); color: var(--green); }
+        .account-actions { display: flex; gap: 6px; }
+        .btn-sm {
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(200,200,215,0.5);
+            background: rgba(255,255,255,0.7);
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #777;
+            transition: all 0.2s;
+        }
+        .btn-sm:hover { background: #fff; color: #555; }
+        .btn-sm.danger:hover { background: #fff0f0; border-color: var(--red); color: var(--red); }
+        .btn-sm.primary:hover { background: rgba(255,140,200,0.1); border-color: var(--pink); color: var(--pink); }
+
+        /* Form */
+        .form-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .form-row input {
+            flex: 1;
+            padding: 12px 14px;
+            border: 1.5px solid rgba(220,220,230,0.4);
+            border-radius: 12px;
+            font-size: 0.9rem;
+            background: rgba(255,255,255,0.7);
+            color: #5a5a6e;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .form-row input:focus {
+            outline: none;
+            border-color: var(--pink);
+            box-shadow: 0 0 0 3px rgba(255,140,200,0.1);
+        }
+        .form-row input::placeholder { color: #ccc; }
+
+        /* Buttons */
+        .btn-primary {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            background: linear-gradient(135deg, var(--pink), var(--blue));
+            color: #fff;
+            box-shadow: 0 4px 16px rgba(255,140,200,0.25);
+            transition: all 0.25s;
+            letter-spacing: 0.5px;
+            font-family: inherit;
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,140,200,0.35); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-stop {
+            background: linear-gradient(135deg, #e88080, #f0a0a0);
+            box-shadow: 0 4px 16px rgba(232,128,128,0.25);
+        }
+        .btn-stop:hover { box-shadow: 0 6px 20px rgba(232,128,128,0.35); }
+
+        /* Log / Token list */
+        .log-list { max-height: 360px; overflow-y: auto; }
+        .log-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(220,220,230,0.2);
+            font-size: 0.85rem;
+        }
+        .log-icon { font-size: 1.1rem; flex-shrink: 0; }
+        .log-body { flex: 1; min-width: 0; }
+        .log-main { color: #5a5a6e; font-weight: 500; }
+        .log-sub { color: #aaa; font-size: 0.75rem; margin-top: 2px; }
+        .log-time { color: #ccc; font-size: 0.72rem; flex-shrink: 0; }
+
+        /* Status indicator */
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .status-dot.running { background: var(--green); animation: pulse 1.5s infinite; }
+        .status-dot.stopped { background: #ccc; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* Token count badge */
+        .count-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, rgba(255,140,200,0.15), rgba(126,200,245,0.15));
+            color: #5a5a6e;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 32px 16px;
+            color: #ccc;
+        }
+        .empty-emoji { font-size: 2.5rem; margin-bottom: 8px; }
+
+        /* Group cards */
+        .group-card {
+            background: rgba(245,245,250,0.4);
+            border-radius: 14px;
+            border: 1.5px solid rgba(220,220,230,0.3);
+            padding: 14px 16px;
+            margin-bottom: 10px;
+            transition: all 0.2s;
+        }
+        .group-card.active {
+            border-color: var(--green);
+            background: rgba(109,204,138,0.06);
+            box-shadow: 0 2px 12px rgba(109,204,138,0.1);
+        }
+        .group-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .group-name {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: #5a5a6e;
+        }
+        .group-name .active-tag {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: var(--green);
+            color: #fff;
+            margin-left: 6px;
+            font-weight: 600;
+        }
+        .group-stats {
+            font-size: 0.75rem;
+            color: #aaa;
+        }
+        .token-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .token-chip {
+            font-family: monospace;
+            font-size: 0.73rem;
+            padding: 3px 10px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.6);
+            border: 1px solid rgba(200,200,215,0.3);
+            color: #777;
+        }
+        .group-card.active .token-chip {
+            border-color: rgba(109,204,138,0.3);
+            color: #5a5a6e;
+        }
+    </style>
+</head>
+<body>
+<div class="bg-deco">
+    <span class="deco-item deco-star" style="top:5%;left:8%;">⭐</span>
+    <span class="deco-item deco-heart" style="top:20%;right:5%;">💖</span>
+    <span class="deco-item deco-sparkle" style="top:60%;left:4%;">✨</span>
+    <span class="deco-item deco-cloud" style="top:75%;right:10%;">☁️</span>
+</div>
+
+<main class="container">
+    <header class="site-header">
+        <div class="header-icon">🤖</div>
+        <h1>Token 自动生成器</h1>
+        <p class="subtitle">全自动 · 每 5 分钟生成一个 · 满 100 停止</p>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <a href="/" class="tab-btn">🌸 手动获取</a>
+        <a href="/auto" class="tab-btn active">🤖 自动生成</a>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-num blue" id="statProgress">-</div>
+            <div class="stat-label">Token 总数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num green" id="statSuccess">0</div>
+            <div class="stat-label">成功</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num red" id="statFailed">0</div>
+            <div class="stat-label">失败</div>
+        </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-wrap">
+        <div class="progress-header">
+            <span class="progress-label">进度 <span id="statusDot" class="status-dot stopped"></span><span id="statusLabel">就绪</span></span>
+            <span class="progress-text" id="progressText">0%</span>
+        </div>
+        <div class="progress-bar-outer">
+            <div class="progress-bar-inner" id="progressBar" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="section-card" style="display: flex; gap: 10px;">
+        <button id="btnStart" class="btn-primary" onclick="startAuto()">
+            🚀 启动自动生成
+        </button>
+        <button id="btnStop" class="btn-primary btn-stop" onclick="stopAuto()" disabled>
+            ⏹️ 停止
+        </button>
+    </div>
+
+    <!-- Rotation Status -->
+    <div class="section-card">
+        <div class="section-title">🔄 Token 组轮换 <span id="rotationBadge" class="count-badge">-</span></div>
+        <div id="rotation429Warning" style="display:none;background:rgba(255,200,80,0.1);border:1px solid rgba(255,180,50,0.3);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:0.8rem;color:#b8860b;"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="color:#888;font-size:0.85rem;">当前活跃组</span>
+            <span style="font-weight:700;color:#5a5a6e;" id="rotationGroup">-</span>
+            <button class="btn-sm primary" onclick="rotateNow()" style="margin-left:12px;">🔄 手动切换</button>
+        </div>
+        <div style="margin-top:8px;color:#aaa;font-size:0.75rem;" id="rotationDetail"></div>
+    </div>
+
+    <!-- GitHub Accounts -->
+    <div class="section-card">
+        <div class="section-title">🔐 GitHub 账号管理 <span id="accountCount" class="count-badge">0 个</span></div>
+        <div id="accountList">
+            <div class="empty-state">
+                <div class="empty-emoji">📭</div>
+                <p>还没有添加 GitHub 账号</p>
+            </div>
+        </div>
+        <div style="margin-top: 16px;">
+            <div class="form-row" id="addForm" style="display: none;">
+                <input id="inpUsername" placeholder="GitHub 用户名" autocomplete="off">
+                <input id="inpPassword" type="password" placeholder="密码" autocomplete="off">
+                <input id="inpTotp" placeholder="2FA 密钥 (可选)" autocomplete="off">
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-sm primary" id="btnAddToggle" onclick="toggleAddForm()">+ 添加账号</button>
+                <button class="btn-sm" id="btnSaveAccount" onclick="saveAccount()" style="display: none;">💾 保存</button>
+                <button class="btn-sm" id="btnCancelAdd" onclick="toggleAddForm()" style="display: none;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Token Groups -->
+    <div class="section-card">
+        <div class="section-title">
+            🗂️ Token 组管理 (<span id="tokenFileName">token.json</span>)
+            <span id="logCount" class="count-badge">0</span>
+        </div>
+        <div id="tokenGroups" style="margin-bottom: 16px;">
+            <div class="empty-state">
+                <div class="empty-emoji">📭</div>
+                <p>加载中...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generation Log -->
+    <div class="section-card">
+        <div class="section-title">📋 生成记录 <span id="genLogCount" class="count-badge">0</span></div>
+        <div class="log-list" id="logList">
+            <div class="empty-state">
+                <div class="empty-emoji">🌱</div>
+                <p>等待生成... <span style="color:#888;font-size:0.8rem;" id="stepHint"></span></p>
+            </div>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <p>made with 💖 | auto token generator</p>
+    </footer>
+</main>
+
+<script>
+    // ── State ───────────────────
+    let eventSource = null;
+    let editingIndex = -1;
+    let currentStep = '就绪';  // Current step for troubleshooting
+
+    // ── API Helpers ─────────────
+    async function api(method, path, body) {
+        const opts = { method, headers: { 'Content-Type': 'application/json' } };
+        if (body) opts.body = JSON.stringify(body);
+        const resp = await fetch(path, opts);
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+            throw new Error(err.detail || resp.statusText);
+        }
+        return resp.json();
+    }
+
+    // ── Init ────────────────────
+    async function init() {
+        await loadAccounts();
+        await loadStatus();
+        await loadTokens();
+        await loadRotation();
+        connectEvents();
+    }
+
+    async function loadAccounts() {
+        const data = await api('GET', '/api/accounts');
+        renderAccounts(data.accounts);
+        document.getElementById('accountCount').textContent = data.accounts.length + ' 个';
+    }
+
+    async function loadStatus() {
+        try {
+            const s = await api('GET', '/api/auto/status');
+            updateStatusUI(s);
+            updateLogs(s.recent_tokens || []);
+        } catch (e) {
+            // not ready yet
+        }
+    }
+
+    let currentTarget = 100;
+
+    async function loadTokens() {
+        const data = await api('GET', '/api/auto/tokens');
+        const target = currentTarget;
+        document.getElementById('statProgress').textContent = data.count + '/' + target;
+        const pct = Math.min(100, Math.round(data.count / target * 100));
+        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('progressText').textContent = pct + '%';
+        renderTokenGroups(data);
+    }
+
+    function renderTokenGroups(data) {
+        const container = document.getElementById('tokenGroups');
+        const groups = data.groups || [];
+        if (!groups.length) {
+            container.innerHTML = '<div class="empty-state"><div class="empty-emoji">📭</div><p>未配置 token 组</p></div>';
+            return;
+        }
+        container.innerHTML = groups.map(g => `
+            <div class="group-card${g.is_active ? ' active' : ''}${g.is_blocked ? ' blocked' : ''}"
+                 style="${g.is_blocked && !g.is_active ? 'opacity:0.6;border-color:var(--red);' : ''}">
+                <div class="group-header">
+                    <span class="group-name">
+                        ${g.name}
+                        ${g.is_active ? '<span class="active-tag">当前</span>' : ''}
+                        ${g.is_blocked && !g.is_active ? '<span style="display:inline-block;font-size:0.7rem;padding:2px 8px;border-radius:10px;background:var(--red);color:#fff;margin-left:6px;font-weight:600;">⏳ 冷却 ${g.block_remaining_str}</span>' : ''}
+                    </span>
+                    <span class="group-stats">${g.in_env}/${g.total} tokens 在 .env</span>
+                </div>
+                <div class="token-chips">
+                    ${g.tokens.map(t => `<span class="token-chip" title="${t}">${t}</span>`).join('')}
+                </div>
+            </div>
+        `).join('');
+        document.getElementById('logCount').textContent = data.count + ' 个';
+    }
+
+    function updateStatusUI(s) {
+        const dot = document.getElementById('statusDot');
+        const label = document.getElementById('statusLabel');
+        const btnStart = document.getElementById('btnStart');
+        const btnStop = document.getElementById('btnStop');
+        const target = s.target || 100;
+        currentTarget = target;
+
+        if (s.running) {
+            dot.className = 'status-dot running';
+            label.textContent = '运行中 — 当前账号: ' + (s.current_account || '等待中...');
+            btnStart.disabled = true;
+            btnStop.disabled = false;
+        } else {
+            dot.className = 'status-dot stopped';
+            label.textContent = s.stop_reason || '就绪';
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+        }
+
+        document.getElementById('statSuccess').textContent = s.success || 0;
+        document.getElementById('statFailed').textContent = s.failed || 0;
+        const progress = s.progress || 0;
+        const pct = Math.min(100, Math.round(progress / target * 100));
+        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('progressText').textContent = pct + '%';
+        document.getElementById('statProgress').textContent = progress + '/' + target;
+    }
+
+    function updateLogs(tokens) {
+        const list = document.getElementById('logList');
+        document.getElementById('stepHint').textContent = currentStep;
+        if (!tokens.length) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-emoji">🌱</div><p>等待生成...</p></div>';
+            return;
+        }
+        document.getElementById('genLogCount').textContent = tokens.length;
+        list.innerHTML = tokens.slice().reverse().map(t => {
+            const isOk = t.status === 'ok';
+            const icon = isOk ? '✅' : '❌';
+            const main = isOk ? `${t.name} (${t.email})` : t.error || '失败';
+            const sub = isOk ? t.token : `账号: ${t.account}`;
+            return `<div class="log-item">
+                <span class="log-icon">${icon}</span>
+                <div class="log-body">
+                    <div class="log-main">${main}</div>
+                    <div class="log-sub">${sub}</div>
+                </div>
+                <span class="log-time">${formatTime(t.time)}</span>
+            </div>`;
+        }).join('');
+        document.getElementById('genLogCount').textContent = tokens.length;
+    }
+
+    function formatTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    // ── SSE Events ──────────────
+    function connectEvents() {
+        if (eventSource) eventSource.close();
+        eventSource = new EventSource('/api/auto/events');
+        eventSource.onmessage = ev => {
+            const data = JSON.parse(ev.data);
+            if (data.type === 'heartbeat') return;
+            handleEvent(data);
+        };
+        eventSource.onerror = () => {
+            setTimeout(connectEvents, 3000);
+        };
+    }
+
+    function handleEvent(data) {
+        switch (data.type) {
+            case 'started':
+                currentStep = '启动中...';
+                loadStatus();
+                loadTokens();
+                break;
+            case 'generating':
+                currentStep = `正在生成第 ${data.session || '?'} 个 (账号: ${data.account})`;
+                document.getElementById('statusLabel').textContent =
+                    `运行中 — ${currentStep}`;
+                loadStatus();
+                loadTokens();
+                break;
+            case 'token_generated':
+                currentStep = `Token 生成成功 (${data.name || '?'})`;
+                loadStatus();
+                loadTokens();
+                loadRotation();
+                break;
+            case 'token_failed':
+                currentStep = `Token 生成失败 (${data.account || '?'}): ${(data.error || '').substring(0, 40)}`;
+                loadStatus();
+                loadTokens();
+                loadRotation();
+                break;
+            case 'done':
+            case 'stopped':
+                currentStep = data.reason || '已停止';
+                loadStatus();
+                loadTokens();
+                break;
+            case 'accounts_updated':
+                loadAccounts();
+                break;
+            case 'waiting':
+                currentStep = data.message || ('等待 ' + Math.floor(data.seconds / 60) + ' 分钟后生成下一个...');
+                document.getElementById('statusLabel').textContent = currentStep;
+                break;
+            case 'error':
+                currentStep = '错误: ' + data.message;
+                document.getElementById('statusLabel').textContent = currentStep;
+                break;
+        }
+    }
+
+    // ── Accounts ────────────────
+    function renderAccounts(accounts) {
+        const list = document.getElementById('accountList');
+        if (!accounts.length) {
+            list.innerHTML = '<div class="empty-state"><div class="empty-emoji">📭</div><p>还没有添加 GitHub 账号</p></div>';
+            return;
+        }
+        list.innerHTML = accounts.map((a, i) => `
+            <div class="account-item">
+                <div class="account-info">
+                    <div class="account-username">👤 ${a.username}</div>
+                    <div class="account-badges">
+                        <span class="badge badge-totp">${a.has_totp ? '🔐 2FA' : '🔓 无2FA'}</span>
+                    </div>
+                </div>
+                <div class="account-actions">
+                    <button class="btn-sm primary" onclick="editAccount(${i})">✏️ 编辑</button>
+                    <button class="btn-sm danger" onclick="deleteAccount(${i})">🗑 删除</button>
+                </div>
+            </div>
+        `).join('');
+        document.getElementById('accountCount').textContent = accounts.length + ' 个';
+    }
+
+    function toggleAddForm() {
+        const form = document.getElementById('addForm');
+        const saveBtn = document.getElementById('btnSaveAccount');
+        const cancelBtn = document.getElementById('btnCancelAdd');
+        const addBtn = document.getElementById('btnAddToggle');
+        const showing = form.style.display !== 'none' && form.style.display !== '';
+        if (showing) {
+            form.style.display = 'none';
+            saveBtn.style.display = 'none';
+            cancelBtn.style.display = 'none';
+            addBtn.style.display = '';
+            clearForm();
+        } else {
+            form.style.display = 'flex';
+            saveBtn.style.display = '';
+            cancelBtn.style.display = '';
+            addBtn.style.display = 'none';
+            editingIndex = -1;
+        }
+    }
+
+    function clearForm() {
+        document.getElementById('inpUsername').value = '';
+        document.getElementById('inpPassword').value = '';
+        document.getElementById('inpTotp').value = '';
+    }
+
+    async function saveAccount() {
+        const username = document.getElementById('inpUsername').value.trim();
+        const password = document.getElementById('inpPassword').value.trim();
+        const totp_secret = document.getElementById('inpTotp').value.trim();
+
+        if (!username || !password) {
+            alert('用户名和密码不能为空');
+            return;
+        }
+
+        try {
+            if (editingIndex >= 0) {
+                await api('PUT', '/api/accounts/' + editingIndex, { username, password, totp_secret });
+            } else {
+                await api('POST', '/api/accounts', { username, password, totp_secret });
+            }
+            toggleAddForm();
+            await loadAccounts();
+        } catch (e) {
+            alert('操作失败: ' + e.message);
+        }
+    }
+
+    async function editAccount(index) {
+        document.getElementById('addForm').style.display = 'flex';
+        document.getElementById('btnSaveAccount').style.display = '';
+        document.getElementById('btnCancelAdd').style.display = '';
+        document.getElementById('btnAddToggle').style.display = 'none';
+        editingIndex = index;
+        try {
+            const data = await api('GET', '/api/accounts');
+            const acc = data.accounts[index];
+            if (acc) {
+                document.getElementById('inpUsername').value = acc.username;
+                document.getElementById('inpPassword').value = '';
+                document.getElementById('inpTotp').value = '';
+                document.getElementById('inpPassword').placeholder = '输入新密码 (留空不修改)';
+            }
+        } catch (e) {
+            toggleAddForm();
+        }
+    }
+
+    async function deleteAccount(index) {
+        try {
+            const data = await api('DELETE', '/api/accounts/' + index);
+            await loadAccounts();
+        } catch (e) {
+            alert('删除失败: ' + e.message);
+        }
+    }
+
+    // ── Auto Control ────────────
+    async function startAuto() {
+        const accounts = await api('GET', '/api/accounts');
+        if (!accounts.accounts.length) {
+            alert('请先添加至少一个 GitHub 账号');
+            return;
+        }
+        try {
+            await api('POST', '/api/auto/start', { mode: 'freebuff' });
+        } catch (e) {
+            alert('启动失败: ' + e.message);
+        }
+    }
+
+    async function stopAuto() {
+        try {
+            await api('POST', '/api/auto/stop');
+        } catch (e) {
+            alert('停止失败: ' + e.message);
+        }
+    }
+
+    // ── Rotation ────────────────
+    async function loadRotation() {
+        try {
+            const r = await api('GET', '/api/rotation/status');
+            document.getElementById('rotationGroup').textContent =
+                `${r.current_group} (${r.current_tokens} tokens)`;
+            document.getElementById('rotationBadge').textContent =
+                `已切换 ${r.total_rotations} 次 · CURRENT_TOKENNum=${r.current_token_num}`;
+            document.getElementById('rotationDetail').textContent =
+                `共 ${r.groups} 组 · 当前第 ${r.current_index + 1}/${r.groups} 组`;
+            document.getElementById('tokenFileName').textContent = r.token_file || 'token.json';
+            // Show 429 warning with countdown
+            window._429info = r.last_429;
+            window._429time = r.last_429_time;
+            window._429elapsed = 0;  // Reset countdown on fresh load
+            update429Countdown();
+        } catch (e) {
+            document.getElementById('rotationGroup').textContent = '不可用';
+        }
+    }
+
+    function update429Countdown() {
+        const warning = document.getElementById('rotation429Warning');
+        const info = window._429info || {};
+        if (!window._429time) {
+            warning.style.display = 'none';
+            return;
+        }
+        warning.style.display = '';
+        // Calculate remaining time from retry_after_ms - elapsed since rotation
+        const retryMs = info.retry_after_ms || 0;
+        const elapsedSec = window._429elapsed || 0;
+        let remaining = Math.max(0, Math.floor(retryMs / 1000) - elapsedSec);
+        const h = Math.floor(remaining / 3600);
+        const m = Math.floor((remaining % 3600) / 60);
+        const s = remaining % 60;
+        const countdown = h > 0 ? `${h}时${m}分${s}秒` : `${m}分${s}秒`;
+        warning.innerHTML =
+            `⚠️ 触发429限流 冷却时间还剩 ${countdown} | 模型 ${info.model || '-'} | ` +
+            `预计恢复 ${info.reset_at_sha || '-'}（上海时间）`;
+    }
+
+    // Update countdown every second
+    setInterval(() => {
+        if (window._429time && window._429info && window._429info.retry_after_ms) {
+            window._429elapsed = (window._429elapsed || 0) + 1;
+            update429Countdown();
+        }
+    }, 1000);
+        } catch (e) {
+            document.getElementById('rotationGroup').textContent = '不可用';
+        }
+    }
+
+    async function rotateNow() {
+        if (!confirm('确定要手动切换到下一组 token？')) return;
+        try {
+            const r = await api('POST', '/api/rotation/rotate');
+            if (r.ok) {
+                await loadRotation();
+                alert(`已切换到 [${r.index}] (${r.tokens} tokens)`);
+            } else {
+                alert('切换失败: ' + r.error);
+            }
+        } catch (e) {
+            alert('请求失败: ' + e.message);
+        }
+    }
+
+    // ── Boot ────────────────────
+    init();
+    loadRotation();
+</script>
+</body>
+</html>

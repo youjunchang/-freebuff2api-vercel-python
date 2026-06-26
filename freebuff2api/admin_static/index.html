@@ -241,95 +241,7 @@
       font-family: var(--mono);
       font-size: 12px;
     }
-    .token-auth-area {
-      margin-bottom: 16px;
-      padding: 16px;
-      border-radius: 10px;
-      border: 1px solid var(--line);
-      background: linear-gradient(135deg, #fdfcff, #f5f7fb);
-    }
-    .token-auth-area .auth-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 14px;
-    }
-    .token-auth-area .auth-header h4 {
-      margin: 0;
-      font-size: 15px;
-    }
-    .auth-mode-group {
-      display: flex;
-      gap: 0;
-      border-radius: 8px;
-      overflow: hidden;
-      border: 1px solid var(--line);
-    }
-    .auth-mode-btn {
-      border: 0;
-      padding: 8px 18px;
-      cursor: pointer;
-      font: inherit;
-      font-size: 13px;
-      background: #fff;
-      color: var(--muted);
-      transition: background .18s, color .18s;
-    }
-    .auth-mode-btn.active {
-      background: var(--accent);
-      color: #fff;
-    }
-    .auth-mode-btn:not(.active):hover {
-      background: #f0f3f8;
-    }
-    .auth-action-row {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-    .auth-status-box {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 14px;
-      border-radius: 8px;
-      background: #fff;
-      border: 1px dashed var(--line);
-      margin-bottom: 12px;
-    }
-    .auth-status-box.success {
-      border-color: #16a34a;
-      background: #f0fdf4;
-    }
-    .auth-status-box .spinner-emoji {
-      font-size: 22px;
-      animation: authSpin 1.2s linear infinite;
-    }
-    @keyframes authSpin {
-      to { transform: rotate(360deg); }
-    }
-    .auth-login-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--accent);
-      text-decoration: none;
-      font-weight: 600;
-      padding: 6px 14px;
-      border-radius: 6px;
-      background: var(--accent-soft);
-      transition: background .18s;
-    }
-    .auth-login-link:hover {
-      background: #d6eafc;
-    }
-    .auth-result-actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
+    @keyframes authSpin { to { transform: rotate(360deg); } }
 
     @media (max-width: 980px) {
       .login-shell { grid-template-columns: 1fr; }
@@ -447,112 +359,150 @@
                     <n-descriptions-item label="Base URL">{{ config.base_url }}</n-descriptions-item>
                   </n-descriptions>
                 </n-card>
-                <n-card title="Token 摘要" :bordered="true">
-                  <div v-if="config.tokens && config.tokens.length" class="token-list">
-                    <div v-for="token in config.tokens" :key="token.index" class="token-row token-summary">
-                      <n-tag size="small">#{{ token.index }}</n-tag>
-                      <span class="mono">{{ token.masked }}</span>
-                      <span class="muted">{{ token.length }} chars</span>
-                      <n-tag size="small" :type="tokenStatusType(token.status)">{{ tokenStatusText(token.status) }}</n-tag>
+                <n-card title="Token 组摘要" :bordered="true">
+                  <div v-if="tokenGroupInfo.groups && tokenGroupInfo.groups.length" class="token-list">
+                    <div v-for="(group, gi) in tokenGroupInfo.groups" :key="gi" class="token-row token-summary">
+                      <n-tag size="small" :type="tokenGroupInfo.active_group_index === gi ? 'success' : group.blocked ? 'error' : 'default'">{{ group.name }}</n-tag>
+                      <span class="muted">{{ group.tokens.length }} 个 Token</span>
+                      <n-tag v-if="tokenGroupInfo.active_group_index === gi" size="small" type="success">活跃</n-tag>
+                      <n-tag v-else-if="group.blocked" size="small" type="error">冷却中</n-tag>
+                      <n-tag v-else size="small" type="default">待用</n-tag>
                     </div>
                   </div>
-                  <div v-else class="empty-box">还没有配置 Freebuff Token</div>
+                  <div v-else class="empty-box">还没有配置 Token 组</div>
                 </n-card>
               </div>
             </section>
 
-            <section v-if="tab === 'tokens'" class="panel-grid">
+            <section v-if="tab === 'tokenGroups'" class="panel-grid">
               <n-card :bordered="true">
                 <div class="section-head">
-                  <h3>Freebuff Token 列表</h3>
+                  <h3>Token 组管理</h3>
                   <div style="display:flex;gap:10px;">
-                    <n-button secondary @click="tokenAuth.show = !tokenAuth.show">
-                      {{ tokenAuth.show ? '收起' : '获取 Token' }}
-                    </n-button>
-                    <n-button type="primary" @click="openTokenModal('add')">添加 Token</n-button>
+                    <n-button secondary :loading="loading.tokenGroups" @click="loadTokenGroups(true)">刷新</n-button>
+                    <n-button type="primary" @click="openGroupModal('add')">添加组</n-button>
                   </div>
                 </div>
 
-                <!-- Token 获取区域 -->
-                <div v-if="tokenAuth.show" class="token-auth-area">
-                  <div class="auth-header">
-                    <h4>在线获取 Freebuff / Codebuff Token</h4>
-                    <n-button size="small" tertiary @click="tokenAuth.show = false">✕</n-button>
-                  </div>
-                  <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:13px;color:var(--muted);">平台：</span>
-                    <div class="auth-mode-group">
-                      <button class="auth-mode-btn" :class="{active:tokenAuth.mode==='freebuff'}" @click="tokenAuth.mode='freebuff'">🌸 Freebuff</button>
-                      <button class="auth-mode-btn" :class="{active:tokenAuth.mode==='codebuff'}" @click="tokenAuth.mode='codebuff'">💻 Codebuff</button>
-                    </div>
-                  </div>
-                  <div class="auth-action-row">
-                    <n-button type="primary" :loading="tokenAuth.loading" :disabled="tokenAuth.polling" @click="startTokenAuth">
-                      <template v-if="!tokenAuth.loading">✨ 开始认证</template>
-                      <template v-else>启动中...</template>
-                    </n-button>
-                    <a v-if="tokenAuth.loginUrl" :href="tokenAuth.loginUrl" target="_blank" rel="noopener" class="auth-login-link">
-                      去登录 →
-                    </a>
-                  </div>
-
-                  <!-- 轮询状态 -->
-                  <div v-if="tokenAuth.polling" class="auth-status-box" :class="{success:tokenAuth.completed}">
-                    <span v-if="!tokenAuth.completed" class="spinner-emoji">🌀</span>
-                    <span v-else>🎉</span>
-                    <div style="flex:1;">
-                      <p style="margin:0;font-size:14px;font-weight:600;">{{ tokenAuth.statusText }}</p>
-                      <p style="margin:4px 0 0;color:var(--muted);font-size:12px;">
-                        {{ tokenAuth.attempt > 0 ? `第 ${tokenAuth.attempt} 次尝试` : '' }}
-                      </p>
-                    </div>
-                    <n-button v-if="tokenAuth.polling && !tokenAuth.completed" size="small" tertiary @click="cancelTokenAuth">取消</n-button>
-                  </div>
-
-                  <!-- 完成后的操作 -->
-                  <div v-if="tokenAuth.completed && tokenAuth.token" class="auth-result-actions">
-                    <n-button type="primary" :loading="loading.tokens" :disabled="tokenAuth.saved" @click="saveAcquiredToken">
-                      📋 添加到 Token 列表
-                    </n-button>
-                    <n-button secondary @click="copyAcquiredToken">
-                      📝 复制 Token
-                    </n-button>
-                    <n-button secondary @click="resetTokenAuth">
-                      重新获取
-                    </n-button>
-                  </div>
-                  <p v-if="tokenAuth.saveResult" style="margin:10px 0 0 0;color:#16a34a;font-size:13px;">{{ tokenAuth.saveResult }}</p>
-                </div>
-
-                <div v-if="config.tokens && config.tokens.length" class="token-list">
-                  <div v-for="token in config.tokens" :key="token.index" class="token-row">
-                    <n-tag size="small">#{{ token.index }}</n-tag>
-                    <span class="mono">{{ token.masked }}</span>
-                    <span class="muted">{{ token.length }} chars</span>
-                    <n-tag size="small" :type="tokenStatusType(token.status)">{{ tokenStatusText(token.status) }}</n-tag>
-                    <span class="token-actions">
-                      <n-button size="small" secondary :loading="loading.tokenRead === token.index" @click="openTokenModal('edit', token.index)">修改</n-button>
-                      <n-button size="small" secondary :loading="loading.verify === token.index" @click="verifySavedToken(token.index)">验证</n-button>
-                      <n-popconfirm @positive-click="deleteToken(token.index)">
-                        <template #trigger>
-                          <n-button size="small" tertiary type="error" :loading="loading.tokenDelete === token.index">删除</n-button>
-                        </template>
-                        删除这个 Freebuff Token？
-                      </n-popconfirm>
-                    </span>
-                  </div>
-                </div>
-                <div v-else class="empty-box">还没有配置 Freebuff Token，点击右上角添加。</div>
-                <n-alert v-if="lastEnv" style="margin-top: 16px;" type="info" title="环境变量文本">
-                  <div class="env-box">{{ lastEnv }}</div>
+                <n-alert v-if="tokenGroupInfo.last_429_time" type="warning" style="margin-bottom:14px;" title="最近 429 限流触发">
+                  <p>触发时间：{{ tokenGroupInfo.last_429_time }}（上海时间）</p>
+                  <p>模型：{{ tokenGroupInfo.last_429.model }} · 每日限额：{{ tokenGroupInfo.last_429.limit }} 次</p>
+                  <p>预计恢复：{{ tokenGroupInfo.last_429.reset_at_sha || '--' }}（上海时间）· 还需 {{ tokenGroupInfo.last_429.retry_after_str || '--' }}</p>
+                  <p>已自动切换至下一组 Token。</p>
                 </n-alert>
+                <n-alert v-if="tokenGroupInfo.total_groups > 0" type="info" style="margin-bottom:14px;">
+                  当前活跃组：<strong>{{ tokenGroupInfo.active_group_name }}</strong>，共 {{ tokenGroupInfo.total_groups }} 组 / {{ tokenGroupInfo.total_tokens }} 个 Token · 文件：<code>{{ tokenGroupInfo.token_file || 'token.json' }}</code>
+                </n-alert>
+
+                <div v-if="tokenGroupInfo.groups && tokenGroupInfo.groups.length" class="token-list" style="gap:14px;">
+                  <div v-for="(group, gi) in tokenGroupInfo.groups" :key="gi" style="border:1px solid var(--line);border-radius:10px;padding:14px;background:#fbfdff;">
+                    <div class="section-head" style="margin-bottom:10px;">
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <template v-if="editingGroupName === gi">
+                          <n-input v-model:value="group._editName" size="small" style="width:160px;" @keydown.enter="renameGroup(gi)" @blur="renameGroup(gi)" />
+                        </template>
+                        <template v-else>
+                          <n-tag :type="tokenGroupInfo.active_group_index === gi ? 'success' : group.blocked ? 'error' : 'default'" size="small" style="cursor:pointer;" @click="startRenameGroup(gi)" title="点击编辑名称">{{ group.name }}</n-tag>
+                        </template>
+                        <span class="muted" style="font-size:13px;">{{ group.tokens.length }} 个 Token</span>
+                        <n-tag v-if="tokenGroupInfo.active_group_index === gi" type="success" size="tiny">当前使用中</n-tag>
+                        <n-tag v-if="group.blocked && tokenGroupInfo.active_group_index !== gi" type="error" size="tiny">⏳ 冷却 {{ group.block_remaining_str }}</n-tag>
+                      </div>
+                      <div style="display:flex;gap:8px;">
+                        <n-button v-if="tokenGroupInfo.active_group_index !== gi && !group.blocked" size="small" type="primary" ghost @click="activateGroup(gi)">切换至此</n-button>
+                        <n-button size="small" secondary @click="openGroupModal('addToken', gi + 1)">+ Token</n-button>
+                        <n-button size="small" secondary @click="startRenameGroup(gi)">编辑组</n-button>
+                        <n-popconfirm @positive-click="deleteTokenGroup(gi + 1)">
+                          <template #trigger>
+                            <n-button size="small" tertiary type="error">删除组</n-button>
+                          </template>
+                          删除整组 {{ group.name }}？此操作不可恢复。
+                        </n-popconfirm>
+                      </div>
+                    </div>
+                    <div class="token-list" style="gap:6px;">
+                      <div v-for="(token, ti) in group.tokens" :key="ti" class="token-row" style="grid-template-columns:42px minmax(0, 1fr) 80px 200px;">
+                        <n-tag size="tiny">#{{ ti + 1 }}</n-tag>
+                        <span class="mono" style="font-size:12px;">{{ maskToken(token) }}</span>
+                        <span class="muted" style="font-size:12px;">{{ token.length }} chars</span>
+                        <span class="token-actions">
+                          <n-button size="tiny" secondary @click="verifyTokenInGroup(gi, ti, token)">验证</n-button>
+                          <n-button size="tiny" secondary @click="openGroupModal('editToken', gi + 1, ti + 1, token)">修改</n-button>
+                          <n-popconfirm @positive-click="deleteTokenInGroup(gi + 1, ti + 1)">
+                            <template #trigger>
+                              <n-button size="tiny" tertiary type="error">删除</n-button>
+                            </template>
+                            删除这个 Token？
+                          </n-popconfirm>
+                          <n-tag v-if="tokenVerifyStatus[gi+'-'+ti]" :type="tokenVerifyStatus[gi+'-'+ti] === 'ok' ? 'success' : tokenVerifyStatus[gi+'-'+ti] === 'fail' ? 'error' : 'default'" size="tiny" style="margin-left:4px;">
+                            {{ tokenVerifyStatus[gi+'-'+ti] === 'ok' ? '✓' : tokenVerifyStatus[gi+'-'+ti] === 'fail' ? '✗' : tokenVerifyStatus[gi+'-'+ti] }}
+                          </n-tag>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="empty-box">还没有配置 Token 组。点击"添加组"创建第一组。</div>
               </n-card>
-              <n-card title="显示规则" :bordered="true">
-                <p class="muted">列表默认只显示脱敏 token，不展示完整值。</p>
-                <p class="muted">点击“修改”时才会读取完整 token 并显示在弹窗输入框中。</p>
-                <p class="muted">本地或常驻服务器保存后会写入 .env 并立即替换账号池；Vercel 只返回环境变量文本。</p>
+              <n-card title="使用说明" :bordered="true">
+                <p class="muted">每组 Token 对应一个 Freebuff 账号的多个 session token。</p>
+                <p class="muted">当上游返回 429 限流时，系统自动切换到下一组。</p>
+                <p class="muted">文件位置：项目根目录 <code>{{ tokenGroupInfo.token_file || 'token.json' }}</code>（由 FREEBUFF_TOKENFILE 指定）。保存后立即热更新生效。</p>
               </n-card>
             </section>
+
+            <!-- Group Modal -->
+            <n-modal v-model:show="groupModal.show" preset="card" :title="groupModalTitle" style="width: min(640px, 92vw)">
+              <n-form>
+                <n-form-item v-if="groupModal.mode === 'add'" label="组名称">
+                  <n-input v-model:value="groupModal.name" placeholder="例如：github-fownbqu、gmail-xxx" />
+                </n-form-item>
+                <n-form-item v-if="groupModal.mode === 'add'" label="Token 列表">
+                  <n-input v-model:value="groupModal.tokens" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" placeholder="多个 Token 用逗号分隔，例如：tokenA,tokenB" />
+                </n-form-item>
+                <n-form-item v-if="groupModal.mode === 'addToken' || groupModal.mode === 'editToken'" label="Token 值">
+                  <n-input v-model:value="groupModal.token" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="粘贴完整 Token" />
+                </n-form-item>
+                <!-- 在线获取 Token（仅 addToken 模式） -->
+                <div v-if="groupModal.mode === 'addToken'" style="margin-bottom:16px;padding:14px;border:1px solid var(--line);border-radius:8px;background:#fbfdff;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                    <span style="font-size:14px;font-weight:600;">在线获取 Token</span>
+                    <n-button v-if="!groupTokenAuth.active" size="small" secondary @click="startGroupTokenAuth">开始认证</n-button>
+                    <n-button v-else size="small" tertiary @click="cancelGroupTokenAuth">收起</n-button>
+                  </div>
+                  <div v-if="groupTokenAuth.active" style="margin-top:8px;">
+                    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+                      <span style="font-size:12px;color:var(--muted);">平台：</span>
+                      <div style="display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--line);">
+                        <button style="border:0;padding:5px 14px;cursor:pointer;font-size:12px;" :style="{background:groupTokenAuth.mode==='freebuff'?'var(--accent)':'#fff',color:groupTokenAuth.mode==='freebuff'?'#fff':'var(--muted)'}" @click="groupTokenAuth.mode='freebuff'">Freebuff</button>
+                        <button style="border:0;padding:5px 14px;cursor:pointer;font-size:12px;" :style="{background:groupTokenAuth.mode==='codebuff'?'var(--accent)':'#fff',color:groupTokenAuth.mode==='codebuff'?'#fff':'var(--muted)'}" @click="groupTokenAuth.mode='codebuff'">Codebuff</button>
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                      <n-button size="small" type="primary" :loading="groupTokenAuth.loading" :disabled="groupTokenAuth.polling" @click="startGroupTokenAuth">
+                        <template v-if="!groupTokenAuth.loading">开始认证</template><template v-else>启动中...</template>
+                      </n-button>
+                      <a v-if="groupTokenAuth.loginUrl" :href="groupTokenAuth.loginUrl" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent);">去登录 →</a>
+                    </div>
+                    <div v-if="groupTokenAuth.polling && !groupTokenAuth.completed" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:#fff;border:1px dashed var(--line);">
+                      <span style="font-size:18px;animation:authSpin 1.2s linear infinite;">🌀</span>
+                      <span style="font-size:13px;">{{ groupTokenAuth.statusText }}</span>
+                      <span v-if="groupTokenAuth.attempt > 0" style="font-size:11px;color:var(--muted);">第 {{ groupTokenAuth.attempt }} 次</span>
+                    </div>
+                    <div v-if="groupTokenAuth.completed && groupTokenAuth.token" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:#f0fdf4;border:1px solid #16a34a;">
+                      <span>🎉</span>
+                      <span style="font-size:13px;flex:1;">{{ groupTokenAuth.statusText }}</span>
+                      <n-button size="tiny" type="primary" @click="useGroupAuthToken">填入输入框</n-button>
+                      <n-button size="tiny" secondary @click="navigator.clipboard.writeText(groupTokenAuth.token);message.success('已复制')">复制</n-button>
+                    </div>
+                    <div v-if="groupTokenAuth.polling && groupTokenAuth.completed" style="margin-top:6px;font-size:12px;color:var(--muted);">
+                      Token 已获取，点击"填入输入框"后保存。
+                    </div>
+                  </div>
+                </div>
+                <n-button type="primary" :loading="loading.tokenGroups" @click="saveGroupModal">保存</n-button>
+              </n-form>
+            </n-modal>
 
             <section v-if="tab === 'apiKey'" class="panel-grid">
               <n-card title="API Key" :bordered="true">
@@ -684,22 +634,6 @@
                 <p class="muted">公开部署时必须设置 FREEBUFF_ADMIN_KEY 和 FREEBUFF_API_KEY。</p>
               </n-card>
             </section>
-
-            <n-modal v-model:show="tokenModal.show" preset="card" :title="tokenModal.mode === 'add' ? '添加 Freebuff Token' : '修改 Freebuff Token'" style="width: min(640px, 92vw)">
-              <n-alert v-if="tokenModal.mode === 'add'" type="info" style="margin-bottom: 16px;">
-                已打开 Token 获取页面。完成认证后复制 token，回到这里粘贴并保存。也可以手动打开：
-                <a :href="tokenHelpUrl" target="_blank" rel="noopener">{{ tokenHelpUrl }}</a>
-              </n-alert>
-              <n-form>
-                <n-form-item label="完整 Token">
-                  <n-input v-model:value="tokenModal.token" type="textarea" :autosize="{ minRows: 4, maxRows: 8 }" placeholder="粘贴完整 Freebuff Token" />
-                </n-form-item>
-                <n-space>
-                  <n-button type="primary" :loading="loading.tokens" @click="saveTokenModal">保存并生效</n-button>
-                  <n-button secondary :disabled="!tokenModal.token" :loading="loading.verify === 0" @click="verifyTokenValue(tokenModal.token)">验证当前输入</n-button>
-                </n-space>
-              </n-form>
-            </n-modal>
           </main>
         </div>
     </n-config-provider>
@@ -744,36 +678,243 @@
         const logAutoRefresh = ref(true);
         const logRefreshSeconds = ref(5);
         const logTimer = ref(null);
-        const lastEnv = ref('');
         const testResult = ref('');
         const modelOptions = ref([]);
         const testForm = reactive({ model: '', prompt: '请用一句话回复当前服务状态。' });
-        const tokenHelpUrl = 'https://freebuff.071129.xyz/';
-        const tokenModal = reactive({ show: false, mode: 'add', index: null, token: '' });
         const apiKeyForm = reactive({ api_key: '' });
         const security = reactive({ admin_key: '' });
-        const tokenAuth = reactive({
-          show: false,
-          mode: 'freebuff',
-          loading: false,
-          loginUrl: '',
-          fingerprintId: '',
-          polling: false,
-          completed: false,
-          attempt: 0,
-          statusText: '',
-          token: '',
-          saveResult: '',
-          saved: false,
-          es: null
+        // ── Token Group state ──
+        const tokenGroupInfo = reactive({ groups: [], total_groups: 0, total_tokens: 0, active_group_index: 0, active_group_name: '' });
+        const groupModal = reactive({ show: false, mode: 'add', groupIndex: null, tokenIndex: null, tokens: '', token: '', name: '' });
+        const editingGroupName = ref(-1);  // group index currently being renamed, -1 = none
+
+        const groupModalTitle = computed(() => {
+          if (groupModal.mode === 'addToken') return '添加 Token 到组' + groupModal.groupIndex;
+          if (groupModal.mode === 'editToken') return '修改组' + groupModal.groupIndex + ' 的 Token #' + groupModal.tokenIndex;
+          return '添加 Token 组';
         });
+
+        function maskToken(token) {
+          if (!token) return '';
+          if (token.length <= 12) return '****';
+          return token.substring(0, 6) + '...' + token.substring(token.length - 6);
+        }
+
+        async function loadTokenGroups(showToast = false) {
+          loading.tokenGroups = true;
+          try {
+            const res = await api('/admin/api/token-groups');
+            assign(tokenGroupInfo, res.data);
+            if (showToast) message.success('Token 组已刷新');
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.tokenGroups = false;
+          }
+        }
+
+        function openGroupModal(mode, groupIndex = null, tokenIndex = null, tokenValue = '') {
+          groupModal.show = true;
+          groupModal.mode = mode;
+          groupModal.groupIndex = groupIndex;
+          groupModal.tokenIndex = tokenIndex;
+          groupModal.tokens = '';
+          groupModal.token = tokenValue || '';
+          groupModal.name = '';
+        }
+
+        async function saveGroupModal() {
+          loading.tokenGroups = true;
+          try {
+            const gm = groupModal;
+            let res;
+            if (gm.mode === 'add') {
+              const tokens = gm.tokens || '';
+              res = await api('/admin/api/token-groups', { method: 'POST', body: JSON.stringify({ tokens, name: gm.name }) });
+            } else if (gm.mode === 'addToken') {
+              res = await api(`/admin/api/token-groups/${gm.groupIndex}/tokens`, { method: 'POST', body: JSON.stringify({ token: gm.token }) });
+            } else if (gm.mode === 'editToken') {
+              res = await api(`/admin/api/token-groups/${gm.groupIndex}/tokens/${gm.tokenIndex}`, { method: 'PUT', body: JSON.stringify({ token: gm.token }) });
+            }
+            if (res && res.data && res.data.groups) {
+              assign(tokenGroupInfo, res.data);
+            }
+            groupModal.show = false;
+            message.success(res.msg || '操作成功');
+            await loadTokenGroups();
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.tokenGroups = false;
+          }
+        }
+
+        async function activateGroup(groupIndex) {
+          loading.tokenGroups = true;
+          try {
+            const res = await api(`/admin/api/token-groups/activate/${groupIndex}`, { method: 'POST' });
+            assign(tokenGroupInfo, res.data);
+            message.success(res.msg || `已激活 [${groupIndex}]`);
+            await loadTokenGroups();
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.tokenGroups = false;
+          }
+        }
+
+        function startRenameGroup(gi) {
+          editingGroupName.value = gi;
+          tokenGroupInfo.groups[gi]._editName = tokenGroupInfo.groups[gi].name;
+        }
+        async function renameGroup(gi) {
+          const newName = (tokenGroupInfo.groups[gi]._editName || '').trim();
+          delete tokenGroupInfo.groups[gi]._editName;
+          editingGroupName.value = -1;
+          if (!newName || newName === tokenGroupInfo.groups[gi].name) return;
+          try {
+            const res = await api(`/admin/api/token-groups/${gi}/name`, { method: 'PUT', body: JSON.stringify({ name: newName }) });
+            assign(tokenGroupInfo, res.data);
+            message.success(res.msg || '组名已更新');
+            await loadTokenGroups();
+          } catch (error) {
+            message.error(normalizeError(error));
+          }
+        }
+
+        const tokenVerifyStatus = reactive({}); // { "groupIndex-tokenIndex": "ok"|"fail"|"..." }
+
+        // ── Online token acquisition (embedded in group modal) ──
+        const groupTokenAuth = reactive({
+          active: false, mode: 'freebuff', loading: false, polling: false,
+          loginUrl: '', fingerprintId: '', attempt: 0, statusText: '',
+          completed: false, token: '', es: null
+        });
+
+        function closeGroupTokenAuthES() {
+          if (groupTokenAuth.es) { groupTokenAuth.es.close(); groupTokenAuth.es = null; }
+        }
+        function resetGroupTokenAuth() {
+          closeGroupTokenAuthES();
+          groupTokenAuth.active = false; groupTokenAuth.polling = false;
+          groupTokenAuth.completed = false; groupTokenAuth.attempt = 0;
+          groupTokenAuth.statusText = ''; groupTokenAuth.token = '';
+          groupTokenAuth.loginUrl = ''; groupTokenAuth.fingerprintId = '';
+          groupTokenAuth.loading = false;
+        }
+        function cancelGroupTokenAuth() {
+          closeGroupTokenAuthES();
+          groupTokenAuth.polling = false;
+          groupTokenAuth.statusText = '已取消';
+          groupTokenAuth.loading = false;
+        }
+        async function startGroupTokenAuth() {
+          resetGroupTokenAuth();
+          groupTokenAuth.active = true;
+          groupTokenAuth.loading = true;
+          try {
+            const res = await api('/admin/api/token-auth/start', {
+              method: 'POST',
+              body: JSON.stringify({ mode: groupTokenAuth.mode })
+            });
+            groupTokenAuth.loginUrl = res.login_url;
+            groupTokenAuth.fingerprintId = res.fingerprint_id;
+            groupTokenAuth.loading = false;
+            groupTokenAuth.polling = true;
+            groupTokenAuth.statusText = '请在打开的页面中完成登录...';
+            window.open(res.login_url, '_blank', 'noopener');
+            const es = new EventSource(`/admin/api/token-auth/poll/${res.fingerprint_id}`);
+            groupTokenAuth.es = es;
+            es.onmessage = ev => {
+              const data = JSON.parse(ev.data);
+              if (data.event === 'pending') {
+                groupTokenAuth.attempt = data.attempt;
+                groupTokenAuth.statusText = '正在等待登录...';
+              } else if (data.event === 'success') {
+                closeGroupTokenAuthES();
+                groupTokenAuth.polling = false;
+                groupTokenAuth.completed = true;
+                groupTokenAuth.token = data.user.authToken || '';
+                groupTokenAuth.statusText = `Token 获取成功！用户：${data.user.name || data.user.email || '未知'}`;
+              } else if (data.event === 'timeout') {
+                closeGroupTokenAuthES();
+                groupTokenAuth.polling = false;
+                groupTokenAuth.statusText = '超时了（5分钟），请重新尝试';
+                groupTokenAuth.loading = false;
+              } else if (data.event === 'error') {
+                closeGroupTokenAuthES();
+                groupTokenAuth.polling = false;
+                groupTokenAuth.statusText = '出错：' + (data.message || '未知错误');
+                groupTokenAuth.loading = false;
+              }
+            };
+            es.onerror = () => {
+              closeGroupTokenAuthES();
+              if (!groupTokenAuth.completed) {
+                groupTokenAuth.polling = false;
+                groupTokenAuth.statusText = '连接中断，请重新尝试';
+                groupTokenAuth.loading = false;
+              }
+            };
+          } catch (error) {
+            groupTokenAuth.loading = false;
+            message.error(normalizeError(error));
+          }
+        }
+        function useGroupAuthToken() {
+          if (groupTokenAuth.token) {
+            groupModal.token = groupTokenAuth.token;
+            resetGroupTokenAuth();
+            message.success('Token 已填入输入框');
+          }
+        }
+
+        async function verifyTokenInGroup(gi, ti, token) {
+          const key = `${gi}-${ti}`;
+          tokenVerifyStatus[key] = '验证中...';
+          try {
+            const res = await api('/admin/api/freebuff-tokens/verify', { method: 'POST', body: JSON.stringify({ token }) });
+            tokenVerifyStatus[key] = res.data.ok ? 'ok' : 'fail';
+            message[res.data.ok ? 'success' : 'error'](res.data.ok ? 'Token 有效' : `Token 无效: ${res.data.info}`);
+          } catch (error) {
+            tokenVerifyStatus[key] = 'fail';
+            message.error(normalizeError(error));
+          }
+        }
+
+        async function deleteTokenGroup(groupIndex) {
+          loading.tokenGroups = true;
+          try {
+            const res = await api(`/admin/api/token-groups/${groupIndex}`, { method: 'DELETE' });
+            assign(tokenGroupInfo, res.data);
+            message.success(res.msg || '组已删除');
+            await loadTokenGroups();
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.tokenGroups = false;
+          }
+        }
+
+        async function deleteTokenInGroup(groupIndex, tokenIndex) {
+          loading.tokenGroups = true;
+          try {
+            const res = await api(`/admin/api/token-groups/${groupIndex}/tokens/${tokenIndex}`, { method: 'DELETE' });
+            assign(tokenGroupInfo, res.data);
+            message.success(res.msg || 'Token 已删除');
+            await loadTokenGroups();
+          } catch (error) {
+            message.error(normalizeError(error));
+          } finally {
+            loading.tokenGroups = false;
+          }
+        }
+
         const loading = reactive({
           login: false,
           page: false,
           tokens: false,
-          tokenRead: null,
-          tokenDelete: null,
-          verify: null,
+          tokenGroups: false,
           logs: false,
           models: false,
           test: false,
@@ -785,7 +926,7 @@
 
         const nav = [
           { key: 'overview', label: '概览', subtitle: '服务状态、账号池和当前配置' },
-          { key: 'tokens', label: 'Token', subtitle: '新增、验证并立即应用 Freebuff Token' },
+          { key: 'tokenGroups', label: 'Token 组', subtitle: '管理多组轮换 Token 及其验证' },
           { key: 'apiKey', label: 'API Key', subtitle: '单独管理外部调用接口使用的访问密钥' },
           { key: 'env', label: 'Env', subtitle: '查看本地 .env 内容和部署环境提示' },
           { key: 'network', label: '网络', subtitle: '检测当前服务器公网地区、代理和上游连通性' },
@@ -886,6 +1027,7 @@
             await loadModels(false);
             await loadEnv(false);
             await loadNetwork(false);
+            await loadTokenGroups(false);
           } catch (error) {
             if (String(error.message || '').includes('401')) authed.value = false;
           } finally {
@@ -905,99 +1047,6 @@
             checkingSession.value = false;
           }
         }
-
-        function openTokenModal(mode, index = null) {
-          tokenModal.show = true;
-          tokenModal.mode = mode;
-          tokenModal.index = index;
-          tokenModal.token = '';
-          if (mode === 'add') {
-            window.open(tokenHelpUrl, '_blank', 'noopener');
-            message.info('已打开 Token 获取页面，复制 token 后回到这里粘贴保存');
-          }
-          if (mode === 'edit' && index) loadTokenForEdit(index);
-        }
-
-        async function loadTokenForEdit(index) {
-          loading.tokenRead = index;
-          try {
-            const res = await api(`/admin/api/freebuff-tokens/${index}`);
-            tokenModal.token = res.data.token || '';
-          } catch (error) {
-            tokenModal.show = false;
-            message.error(normalizeError(error));
-          } finally {
-            loading.tokenRead = null;
-          }
-        }
-
-        async function saveTokenModal() {
-          loading.tokens = true;
-          try {
-            const path = tokenModal.mode === 'edit'
-              ? `/admin/api/freebuff-tokens/${tokenModal.index}`
-              : '/admin/api/freebuff-tokens';
-            const method = tokenModal.mode === 'edit' ? 'PUT' : 'POST';
-            const res = await api(path, { method, body: JSON.stringify({ token: tokenModal.token }) });
-            assign(config, res.data);
-            lastEnv.value = res.data.env || '';
-            tokenModal.show = false;
-            tokenModal.token = '';
-            message.success(res.data.persisted ? '已保存并立即生效' : '当前环境不持久写入，请复制环境变量');
-            await refreshAll();
-          } catch (error) {
-            message.error(normalizeError(error));
-          } finally {
-            loading.tokens = false;
-          }
-        }
-
-        async function deleteToken(index) {
-          loading.tokenDelete = index;
-          try {
-            const res = await api(`/admin/api/freebuff-tokens/${index}`, { method: 'DELETE' });
-            assign(config, res.data);
-            lastEnv.value = res.data.env || '';
-            message.success(res.data.persisted ? '已删除并立即生效' : '已生成新的环境变量文本');
-            await refreshAll();
-          } catch (error) {
-            message.error(normalizeError(error));
-          } finally {
-            loading.tokenDelete = null;
-          }
-        }
-
-        async function verifyTokenValue(token, marker = 0) {
-          loading.verify = marker;
-          try {
-            const res = await api('/admin/api/freebuff-tokens/verify', { method: 'POST', body: JSON.stringify({ token }) });
-            res.data.ok ? message.success(res.data.info) : message.warning(res.data.info);
-          } catch (error) {
-            message.error(normalizeError(error));
-          } finally {
-            loading.verify = null;
-          }
-        }
-
-        function updateTokenStatus(index, status) {
-          const row = (config.tokens || []).find(item => item.index === index);
-          if (row) row.status = status;
-        }
-
-        async function verifySavedToken(index) {
-          loading.verify = index;
-          try {
-            const tokenRes = await api(`/admin/api/freebuff-tokens/${index}`);
-            const res = await api('/admin/api/freebuff-tokens/verify', { method: 'POST', body: JSON.stringify({ token: tokenRes.data.token }) });
-            updateTokenStatus(index, res.data.ok ? 'valid' : 'invalid');
-            res.data.ok ? message.success(res.data.info) : message.warning(res.data.info);
-          } catch (error) {
-            message.error(normalizeError(error));
-          } finally {
-            loading.verify = null;
-          }
-        }
-
         async function loadModels(showToast = false) {
           loading.models = true;
           try {
@@ -1079,120 +1128,6 @@
             loading.apiKey = false;
           }
         }
-
-        function closeTokenAuthES() {
-          if (tokenAuth.es) {
-            tokenAuth.es.close();
-            tokenAuth.es = null;
-          }
-        }
-
-        function resetTokenAuth() {
-          closeTokenAuthES();
-          tokenAuth.polling = false;
-          tokenAuth.completed = false;
-          tokenAuth.attempt = 0;
-          tokenAuth.statusText = '';
-          tokenAuth.token = '';
-          tokenAuth.loginUrl = '';
-          tokenAuth.fingerprintId = '';
-          tokenAuth.saveResult = '';
-          tokenAuth.saved = false;
-          tokenAuth.loading = false;
-        }
-
-        function cancelTokenAuth() {
-          closeTokenAuthES();
-          tokenAuth.polling = false;
-          tokenAuth.statusText = '已取消';
-          tokenAuth.loading = false;
-        }
-
-        async function startTokenAuth() {
-          resetTokenAuth();
-          tokenAuth.loading = true;
-          try {
-            const res = await api('/admin/api/token-auth/start', {
-              method: 'POST',
-              body: JSON.stringify({ mode: tokenAuth.mode })
-            });
-            tokenAuth.loginUrl = res.login_url;
-            tokenAuth.fingerprintId = res.fingerprint_id;
-            tokenAuth.loading = false;
-            tokenAuth.polling = true;
-            tokenAuth.statusText = '请在打开的页面中完成登录...';
-
-            window.open(res.login_url, '_blank', 'noopener');
-
-            const es = new EventSource(`/admin/api/token-auth/poll/${res.fingerprint_id}`);
-            tokenAuth.es = es;
-            es.onmessage = ev => {
-              const data = JSON.parse(ev.data);
-              if (data.event === 'pending') {
-                tokenAuth.attempt = data.attempt;
-                tokenAuth.statusText = '正在等待登录...';
-              } else if (data.event === 'success') {
-                closeTokenAuthES();
-                tokenAuth.polling = false;
-                tokenAuth.completed = true;
-                tokenAuth.token = data.user.authToken || '';
-                tokenAuth.saved = false;
-                tokenAuth.statusText = `Token 获取成功！用户：${data.user.name || data.user.email || '未知'}`;
-              } else if (data.event === 'timeout') {
-                closeTokenAuthES();
-                tokenAuth.polling = false;
-                tokenAuth.statusText = '超时了（5分钟），请重新尝试';
-                tokenAuth.loading = false;
-              } else if (data.event === 'error') {
-                closeTokenAuthES();
-                tokenAuth.polling = false;
-                tokenAuth.statusText = '出错：' + (data.message || '未知错误');
-                tokenAuth.loading = false;
-              }
-            };
-            es.onerror = () => {
-              closeTokenAuthES();
-              if (!tokenAuth.completed) {
-                tokenAuth.polling = false;
-                tokenAuth.statusText = '连接中断，请重新尝试';
-                tokenAuth.loading = false;
-              }
-            };
-          } catch (error) {
-            tokenAuth.loading = false;
-            message.error(normalizeError(error));
-          }
-        }
-
-        async function saveAcquiredToken() {
-          if (!tokenAuth.token || tokenAuth.saved) return;
-          loading.tokens = true;
-          try {
-            const res = await api('/admin/api/freebuff-tokens', {
-              method: 'POST',
-              body: JSON.stringify({ token: tokenAuth.token })
-            });
-            assign(config, res.data);
-            lastEnv.value = res.data.env || '';
-            tokenAuth.saved = true;
-            updateTokenStatus(config.token_count, 'valid');
-            tokenAuth.saveResult = 'Token 已添加到列表并生效';
-            message.success(res.data.persisted ? '已保存并立即生效' : '当前环境不持久写入，请复制环境变量');
-            await refreshAll();
-          } catch (error) {
-            message.error(normalizeError(error));
-          } finally {
-            loading.tokens = false;
-          }
-        }
-
-        async function copyAcquiredToken() {
-          if (!tokenAuth.token) return;
-          await navigator.clipboard.writeText(tokenAuth.token);
-          tokenAuth.saveResult = 'Token 已复制到剪贴板';
-          message.success('Token 已复制');
-        }
-
         async function copyLogs() {
           const text = logs.value.map(item => {
             const line = `${item.time} ${item.level} [${item.logger}] ${item.message}`;
@@ -1207,30 +1142,23 @@
           message.success('Env 内容已复制');
         }
 
-        function tokenStatusType(status) {
-          if (status === 'valid') return 'success';
-          if (status === 'invalid') return 'error';
-          return 'default';
-        }
-
-        function tokenStatusText(status) {
-          if (status === 'valid') return '有效';
-          if (status === 'invalid') return '失效';
-          return '未验证';
-        }
-
         onMounted(checkSession);
-        onUnmounted(() => { stopLogAutoRefresh(); closeTokenAuthES(); });
+        onUnmounted(() => { stopLogAutoRefresh(); closeGroupTokenAuthES(); });
 
         return {
           checkingSession, authed, loginKey, tab, nav, overview, config, logs, logLevel, logLimit,
-          logLevels, logAutoRefresh, logRefreshSeconds, lastEnv, envInfo, networkInfo, modelOptions, testForm, testResult, tokenHelpUrl, tokenModal,
+          logLevels, logAutoRefresh, logRefreshSeconds, envInfo, networkInfo, modelOptions, testForm, testResult,
           apiKeyForm, security, loading, activeTitle, activeSubtitle,
-          login, logout, refreshAll, loadLogs, loadModels, loadEnv, loadNetwork, syncLogAutoRefresh, openTokenModal,
-          saveTokenModal, deleteToken, verifyTokenValue, verifySavedToken,
+          login, logout, refreshAll, loadLogs, loadModels, loadEnv, loadNetwork, syncLogAutoRefresh,
           runChatTest, saveSecurity, saveApiKey, copyLogs, copyEnvContent,
-          tokenAuth, startTokenAuth, cancelTokenAuth, saveAcquiredToken, copyAcquiredToken, resetTokenAuth,
-          tokenStatusType, tokenStatusText
+          // Token groups
+          tokenGroupInfo, groupModal, groupModalTitle, maskToken, loadTokenGroups,
+          openGroupModal, saveGroupModal, deleteTokenGroup, deleteTokenInGroup, activateGroup,
+          verifyTokenInGroup, tokenVerifyStatus,
+          // Online token auth
+          groupTokenAuth, startGroupTokenAuth, cancelGroupTokenAuth, useGroupAuthToken,
+          // Group rename
+          editingGroupName, startRenameGroup, renameGroup
         };
       }
     }).use(naive).mount('#app');

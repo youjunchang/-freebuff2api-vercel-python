@@ -97,6 +97,41 @@ body {
     font-weight: 400;
 }
 
+/* ===== 导航标签 ===== */
+.tabs {
+    width: 100%;
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    background: rgba(245,245,250,0.5);
+    border-radius: 14px;
+    padding: 4px;
+    border: 1px solid rgba(220,220,230,0.4);
+    animation: fadeInUp 0.6s ease-out 0.05s both;
+    max-width: 520px;
+}
+.tab-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 11px;
+    background: transparent;
+    color: #8888a0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s;
+    text-decoration: none;
+    text-align: center;
+    font-family: inherit;
+}
+.tab-btn:hover { background: rgba(255,255,255,0.5); color: #666680; }
+.tab-btn.active {
+    background: linear-gradient(135deg, #ff8dc7 0%, #7ec8f5 100%);
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(255,140,200,0.2);
+}
+
 /* ===== 主卡片 ===== */
 .main-card {
     width: 100%;

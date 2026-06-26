@@ -20,6 +20,7 @@ from .codebuff import CodebuffAccountPool, CodebuffClient, CodebuffError
 from .config import DEFAULT_ADMIN_KEY, Settings, project_env_path, write_env_values
 from .logging_config import get_buffered_logs
 from .models import DEFAULT_MODEL, models_response
+from .token_rotation import get_rotation_manager
 
 
 COOKIE_NAME = "freebuff_admin_session"
@@ -698,3 +699,342 @@ async def chat_test(request: Request) -> dict[str, Any]:
         return _api_ok({"ok": False, "info": str(error)})
     finally:
         await lease.aclose()
+
+
+# ═══════════════════════════════════════════════════════════════
+# Token Group Management — token.json CRUD
+# ═══════════════════════════════════════════════════════════════
+
+_MAX_GROUP_NUM = 99
+
+
+def _token_group_file() -> Path:
+    """Read token file path from FREEBUFF_TOKENFILE env var."""
+    filename = os.getenv("FREEBUFF_TOKENFILE", "token.json").strip() or "token.json"
+    path = Path(filename)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[1] / filename
+    return path
+
+
+def _read_token_groups() -> list[dict[str, Any]]:
+    """Parse token.json and return groups list.
+
+    New format: [{"name": "xxx", "tokens": ["t1","t2"]}, ...]
+    Old format (backward compat): [["t1","t2"], ["t3"], ...]
+    Each returned group: {"name": "xxx", "index": i, "tokens": [...]}
+    """
+    filepath = _token_group_file()
+    if not filepath.exists():
+        return []
+
+    try:
+        raw = json.loads(filepath.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    if not isinstance(raw, list):
+        return []
+
+    groups: list[dict[str, Any]] = []
+    for i, item in enumerate(raw):
+        if isinstance(item, dict):
+            name = str(item.get("name", f"[{i}]")).strip() or f"[{i}]"
+            token_list = item.get("tokens", [])
+            tokens = [t.strip() for t in token_list if isinstance(t, str) and t.strip()]
+            extra = {k: v for k, v in item.items() if k not in ("name", "tokens")}
+        elif isinstance(item, list):
+            tokens = [t.strip() for t in item if isinstance(t, str) and t.strip()]
+            name = f"[{i}]"
+            extra = {}
+        elif isinstance(item, str) and item.strip():
+            tokens = [item.strip()]
+            name = f"[{i}]"
+            extra = {}
+        else:
+            continue
+        if tokens:
+            group = {"name": name, "index": i, "tokens": tokens}
+            group.update(extra)
+            groups.append(group)
+    return groups
+
+
+def _write_token_groups(groups: list[dict[str, Any]]) -> None:
+    """Write groups back to token.json as named objects."""
+    filepath = _token_group_file()
+    data: list[dict[str, Any]] = []
+    for group in groups:
+        data.append({"name": group["name"], "tokens": group["tokens"]})
+    filepath.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # Also sync to 账号信息.txt for backward compatibility
+    _sync_to_legacy_txt(groups)
+
+
+def _sync_to_legacy_txt(groups: list[dict[str, Any]]) -> None:
+    """Sync groups to the legacy 账号信息.txt format."""
+    legacy_file = Path(__file__).resolve().parents[1] / "账号信息.txt"
+    lines: list[str] = []
+    for i, group in enumerate(groups, start=1):
+        lines.append(f"FREEBUFF_TOKEN{i}={','.join(group['tokens'])}")
+    legacy_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _reload_token_rotation() -> None:
+    """Force the rotation manager singleton to reload from file."""
+    import freebuff2api.token_rotation as _mod
+
+    _mod._manager = None
+    _mod.get_rotation_manager().ensure_active_group()
+
+
+@router.get("/admin/api/token-groups")
+async def list_token_groups(request: Request) -> dict[str, Any]:
+    _check_admin_auth(request)
+    groups = _read_token_groups()
+    rotation = get_rotation_manager()
+    # Build per-group block info
+    blocked_map = rotation.blocked_groups
+    groups_list = groups
+    for gi, group in enumerate(groups_list):
+        if gi in blocked_map:
+            remaining = int(rotation.group_block_remaining(gi))
+            h, m = remaining // 3600, (remaining % 3600) // 60
+            s = remaining % 60
+            group["blocked"] = True
+            group["block_remaining_sec"] = remaining
+            group["block_remaining_str"] = f"{h}时{m}分{s}秒" if h > 0 else f"{m}分{s}秒"
+        else:
+            group["blocked"] = False
+            group["block_remaining_sec"] = 0
+            group["block_remaining_str"] = ""
+
+    return _api_ok({
+        "groups": groups_list,
+        "total_groups": len(groups_list),
+        "total_tokens": sum(len(g["tokens"]) for g in groups_list),
+        "active_group_index": rotation.current_index,
+        "active_group_name": rotation.current_group_name,
+        "token_file": _token_group_file().name,
+        "current_token_num": rotation.current_index,
+        "last_429": rotation.last_429_info,
+        "last_429_time": rotation.last_429_time,
+        "all_blocked": all(gi in blocked_map for gi in range(len(groups_list))) if groups_list else False,
+    })
+
+
+@router.post("/admin/api/token-groups")
+async def add_token_group(request: Request) -> dict[str, Any]:
+    _check_admin_auth(request)
+    body = await request.json()
+    tokens_input = body.get("tokens") or []
+    group_name = str(body.get("name") or "").strip()
+
+    if isinstance(tokens_input, str):
+        tokens = [t.strip() for t in tokens_input.split(",") if t.strip()]
+    elif isinstance(tokens_input, list):
+        tokens = [str(t).strip() for t in tokens_input if str(t).strip()]
+    else:
+        raise HTTPException(status_code=400, detail="tokens must be a list or comma-separated string")
+
+    if not tokens:
+        raise HTTPException(status_code=400, detail="At least one token is required")
+
+    groups = _read_token_groups()
+    if len(groups) >= _MAX_GROUP_NUM:
+        raise HTTPException(status_code=400, detail=f"Maximum {_MAX_GROUP_NUM} groups reached")
+
+    group_num = len(groups) + 1
+    if not group_name:
+        group_name = f"组{group_num}"
+
+    groups.append({
+        "name": group_name,
+        "tokens": tokens,
+        "line_key": f"FREEBUFF_TOKEN{group_num}",
+    })
+
+    _write_token_groups(groups)
+    _reload_token_rotation()
+
+    return _api_ok({
+        "groups": _read_token_groups(),
+        "added_group": groups[-1],
+    }, f"Group '{group_name}' added with {len(tokens)} token(s)")
+
+
+@router.delete("/admin/api/token-groups/{group_index}")
+async def delete_token_group(request: Request, group_index: int) -> dict[str, Any]:
+    _check_admin_auth(request)
+    groups = _read_token_groups()
+    if group_index < 1 or group_index > len(groups):
+        raise HTTPException(status_code=404, detail=f"Group {group_index} not found")
+
+    deleted = groups.pop(group_index - 1)
+    _write_token_groups(groups)
+    _reload_token_rotation()
+
+    return _api_ok({
+        "groups": _read_token_groups(),
+    }, f"Group {group_index} ({deleted['name']}) deleted")
+
+
+@router.post("/admin/api/token-groups/{group_index}/tokens")
+async def add_token_to_group(request: Request, group_index: int) -> dict[str, Any]:
+    _check_admin_auth(request)
+    groups = _read_token_groups()
+    if group_index < 1 or group_index > len(groups):
+        raise HTTPException(status_code=404, detail=f"Group {group_index} not found")
+
+    body = await request.json()
+    token = str(body.get("token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Token is required")
+
+    group = groups[group_index - 1]
+    group["tokens"].append(token)
+
+    _write_token_groups(groups)
+    _reload_token_rotation()
+
+    return _api_ok({
+        "groups": _read_token_groups(),
+        "token": token,
+        "group": group,
+    }, f"Token added to {group['name']}")
+
+
+@router.put("/admin/api/token-groups/{group_index}/tokens/{token_index}")
+async def update_token_in_group(
+    request: Request, group_index: int, token_index: int
+) -> dict[str, Any]:
+    _check_admin_auth(request)
+    groups = _read_token_groups()
+    if group_index < 1 or group_index > len(groups):
+        raise HTTPException(status_code=404, detail=f"Group {group_index} not found")
+
+    group = groups[group_index - 1]
+    if token_index < 1 or token_index > len(group["tokens"]):
+        raise HTTPException(status_code=404, detail=f"Token {token_index} not found in group {group_index}")
+
+    body = await request.json()
+    new_token = str(body.get("token") or "").strip()
+    if not new_token:
+        raise HTTPException(status_code=400, detail="Token is required")
+
+    old_token = group["tokens"][token_index - 1]
+    group["tokens"][token_index - 1] = new_token
+
+    _write_token_groups(groups)
+    _reload_token_rotation()
+
+    return _api_ok({
+        "groups": _read_token_groups(),
+        "old_token_masked": _mask(old_token),
+        "new_token_masked": _mask(new_token),
+    }, f"Token {token_index} updated in {group['name']}")
+
+
+@router.post("/admin/api/token-groups/rotate")
+async def rotate_token_group(request: Request) -> dict[str, Any]:
+    """Manually switch to the next token group."""
+    _check_admin_auth(request)
+    rotation = get_rotation_manager()
+    if not rotation.group_count:
+        raise HTTPException(status_code=400, detail="No token groups configured")
+    old_idx = rotation.current_index
+    idx, name, tokens = rotation.rotate(reason="manual from admin")
+    # Reload account pool
+    await _replace_accounts(request, _settings(request))
+    old_name = rotation._group_names[old_idx] if old_idx < len(rotation._group_names) else f"[{old_idx}]"
+    return _api_ok({
+        "previous_group": old_name,
+        "current_group": name,
+        "current_index": idx,
+        "tokens_count": len(tokens),
+        "total_rotations": rotation.total_rotations,
+    }, f"Switched from {old_name} → {name}")
+
+
+@router.post("/admin/api/token-groups/activate/{group_index}")
+async def activate_token_group(request: Request, group_index: int) -> dict[str, Any]:
+    """Switch to a specific token group by index."""
+    _check_admin_auth(request)
+    rotation = get_rotation_manager()
+    if not rotation.group_count:
+        raise HTTPException(status_code=400, detail="No token groups configured")
+    if group_index < 0 or group_index >= rotation.group_count:
+        raise HTTPException(status_code=404, detail=f"Group [{group_index}] not found")
+
+    old_idx = rotation.current_index
+    # Force-switch to target group
+    while rotation.current_index != group_index:
+        rotation.rotate(reason=f"manual activate [{group_index}]")
+    # Reload account pool
+    new_settings = replace(_settings(request), codebuff_token=",".join(rotation.current_tokens))
+    await _replace_accounts(request, new_settings)
+    old_name = rotation._group_names[old_idx] if old_idx < len(rotation._group_names) else f"[{old_idx}]"
+    new_name = rotation._group_names[rotation.current_index] if rotation.current_index < len(rotation._group_names) else f"[{rotation.current_index}]"
+    return _api_ok({
+        "previous_group": old_name,
+        "current_group": new_name,
+        "current_index": rotation.current_index,
+        "tokens_count": len(rotation.current_tokens),
+    }, f"Activated {new_name}")
+
+
+@router.put("/admin/api/token-groups/{group_index}/name")
+async def rename_token_group(request: Request, group_index: int) -> dict[str, Any]:
+    """Rename a token group."""
+    _check_admin_auth(request)
+    groups = _read_token_groups()
+    if group_index < 0 or group_index >= len(groups):
+        raise HTTPException(status_code=404, detail=f"Group [{group_index}] not found")
+
+    body = await request.json()
+    new_name = str(body.get("name") or "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    old_name = groups[group_index]["name"]
+    groups[group_index]["name"] = new_name
+
+    _write_token_groups(groups)
+    _reload_token_rotation()
+
+    return _api_ok({
+        "groups": _read_token_groups(),
+        "old_name": old_name,
+        "new_name": new_name,
+    }, f"Group renamed: '{old_name}' → '{new_name}'")
+
+
+@router.delete("/admin/api/token-groups/{group_index}/tokens/{token_index}")
+async def delete_token_from_group(
+    request: Request, group_index: int, token_index: int
+) -> dict[str, Any]:
+    _check_admin_auth(request)
+    groups = _read_token_groups()
+    if group_index < 1 or group_index > len(groups):
+        raise HTTPException(status_code=404, detail=f"Group {group_index} not found")
+
+    group = groups[group_index - 1]
+    if token_index < 1 or token_index > len(group["tokens"]):
+        raise HTTPException(status_code=404, detail=f"Token {token_index} not found in group {group_index}")
+
+    deleted = group["tokens"].pop(token_index - 1)
+
+    # If group becomes empty, remove the group entirely
+    if not group["tokens"]:
+        groups.pop(group_index - 1)
+        msg = f"Token deleted; {group['name']} removed (no tokens left)"
+    else:
+        msg = f"Token {token_index} deleted from {group['name']}"
+
+    _write_token_groups(groups)
+    _reload_token_rotation()
+
+    return _api_ok({
+        "groups": _read_token_groups(),
+        "deleted_token_masked": _mask(deleted),
+    }, msg)
